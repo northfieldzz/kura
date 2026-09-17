@@ -55,4 +55,7 @@ type QuotaRepository interface {
 
 	// ListNotifications は最新のアプリ内通知一覧を取得する (新しい順)
 	ListNotifications(ctx context.Context, limit int) ([]*entity.Notification, error)
+
+	// Ping はデータベース (DynamoDB / インメモリ) への疎通健全性を確認する (Readiness Probe 向け)
+	Ping(ctx context.Context) error
 }

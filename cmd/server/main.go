@@ -63,7 +63,7 @@ func main() {
 	rateLimiter := ratelimit.NewMemoryRateLimiter(cfg.RateLimitRPM)
 	rateLimitMiddleware := delivery.NewRateLimitMiddleware(rateLimiter)
 	authMiddleware := delivery.NewAuthMiddleware(authUseCase)
-	handler := delivery.NewHandler(chatUseCase, realtimeProxy)
+	handler := delivery.NewHandler(chatUseCase, realtimeProxy, quotaRepo)
 	adminHandler := delivery.NewAdminHandler(adminUseCase, batchUseCase, cfg.AdminAPIKey)
 
 	// 6. ルーティング & Huma v2 (OpenAPI 3.1 & Scalar 自動生成) 設定
@@ -75,6 +75,10 @@ func main() {
 	mux.HandleFunc("/v1/chat/completions", standardChatHandler)
 	mux.HandleFunc("/v1/realtime", authMiddleware.Wrap(handler.Realtime))
 	mux.HandleFunc("/health", handler.HealthCheck)
+	mux.HandleFunc("/health/live", handler.Liveness)
+	mux.HandleFunc("/health/ready", handler.Readiness)
+	mux.HandleFunc("/livez", handler.Liveness)
+	mux.HandleFunc("/readyz", handler.Readiness)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -96,6 +100,9 @@ func main() {
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	sig := <-quit
 	log.Printf("[INFO] Received shutdown signal: %v. Initiating graceful shutdown...", sig)
+
+	// ALB / クラスターからの新規トラフィックを遮断するため、即座に Readiness を落とす
+	handler.SetShuttingDown(true)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

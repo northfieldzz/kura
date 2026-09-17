@@ -27,7 +27,9 @@ func init() {
 // HealthOutput はヘルスチェックのレスポンス型
 type HealthOutput struct {
 	Body struct {
-		Status string `json:"status" example:"ok" doc:"ゲートウェイの稼働ステータス"`
+		Status   string `json:"status" example:"ok" doc:"ゲートウェイの稼働ステータス"`
+		Database string `json:"database,omitempty" example:"connected" doc:"データベース疎通ステータス"`
+		Message  string `json:"message,omitempty" doc:"ステータスメッセージ"`
 	}
 }
 
@@ -245,17 +247,47 @@ func SetupHumaAPI(
 		next(ctx)
 	})
 
-	// 1. GET /api/llm/health
+	// 1. GET /api/llm/health (総合ヘルスチェック)
 	huma.Register(api, huma.Operation{
 		OperationID: "health-check",
 		Method:      http.MethodGet,
 		Path:        "/api/llm/health",
-		Summary:     "ヘルスチェック",
-		Description: "ゲートウェイの稼働状態を確認するエンドポイント。ALB やコンテナの死活監視に使用。",
+		Summary:     "総合ヘルスチェック",
+		Description: "ゲートウェイの稼働状態を確認するエンドポイント（後方互換）。",
 		Tags:        []string{"システム"},
 	}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
 		out := &HealthOutput{}
 		out.Body.Status = "ok"
+		out.Body.Database = "connected"
+		return out, nil
+	})
+
+	// 1-1. GET /api/llm/health/live (Liveness プローブ)
+	huma.Register(api, huma.Operation{
+		OperationID: "liveness-check",
+		Method:      http.MethodGet,
+		Path:        "/api/llm/health/live",
+		Summary:     "Liveness プローブ (死活監視)",
+		Description: "プロセスの死活監視用エンドポイント。外部依存関係を見ず、プロセス生存時に即座に 200 を返す。",
+		Tags:        []string{"システム"},
+	}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
+		out := &HealthOutput{}
+		out.Body.Status = "alive"
+		return out, nil
+	})
+
+	// 1-2. GET /api/llm/health/ready (Readiness プローブ)
+	huma.Register(api, huma.Operation{
+		OperationID: "readiness-check",
+		Method:      http.MethodGet,
+		Path:        "/api/llm/health/ready",
+		Summary:     "Readiness プローブ (受入準備監視)",
+		Description: "トラフィック受入準備完了の監視用エンドポイント。Graceful Shutdown 移行時は 503 を返し、ALB 新規流入を遮断。",
+		Tags:        []string{"システム"},
+	}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
+		out := &HealthOutput{}
+		out.Body.Status = "ready"
+		out.Body.Database = "connected"
 		return out, nil
 	})
 

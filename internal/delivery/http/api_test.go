@@ -38,6 +38,8 @@ func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 
 	expectedPaths := []string{
 		"/api/llm/health",
+		"/api/llm/health/live",
+		"/api/llm/health/ready",
 		"/api/v1/llm/chat/completions",
 		"/api/v1/llm/realtime",
 		"/api/v1/llm/internal/usage",

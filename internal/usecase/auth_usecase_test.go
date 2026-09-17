@@ -100,6 +100,9 @@ func (m *mockQuotaRepo) SaveNotification(ctx context.Context, ntf *entity.Notifi
 func (m *mockQuotaRepo) ListNotifications(ctx context.Context, limit int) ([]*entity.Notification, error) {
 	return nil, nil
 }
+func (m *mockQuotaRepo) Ping(ctx context.Context) error {
+	return nil
+}
 
 func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	repo := &mockQuotaRepo{

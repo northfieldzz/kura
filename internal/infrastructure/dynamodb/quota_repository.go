@@ -657,6 +657,16 @@ func (r *dynamodbQuotaRepository) ListNotifications(ctx context.Context, limit i
 	return results, nil
 }
 
+func (r *dynamodbQuotaRepository) Ping(ctx context.Context) error {
+	_, err := r.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(r.tableName),
+	})
+	if err != nil {
+		return fmt.Errorf("dynamodb ping failed: %w", err)
+	}
+	return nil
+}
+
 // --- Memory Implementation ---
 
 func newMemoryQuotaRepository(defaultQuota int64) *memoryQuotaRepository {
@@ -1048,5 +1058,9 @@ func (m *memoryQuotaRepository) ListNotifications(ctx context.Context, limit int
 		results = append(results, &clone)
 	}
 	return results, nil
+}
+
+func (m *memoryQuotaRepository) Ping(ctx context.Context) error {
+	return nil
 }
 

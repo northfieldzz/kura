@@ -1,38 +1,93 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"sync/atomic"
+	"time"
 
 	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
+	"github.com/northfieldzz/llm_gateway/internal/domain/repository"
 	"github.com/northfieldzz/llm_gateway/internal/infrastructure/websocket"
 	"github.com/northfieldzz/llm_gateway/internal/usecase"
 )
 
 // Handler は Gateway の HTTP リクエストハンドラ群
 type Handler struct {
-	chatUseCase   usecase.ChatUseCase
-	realtimeProxy *websocket.RealtimeProxy
+	chatUseCase    usecase.ChatUseCase
+	realtimeProxy  *websocket.RealtimeProxy
+	quotaRepo      repository.QuotaRepository
+	isShuttingDown atomic.Bool
 }
 
 // NewHandler は Handler インスタンスを生成する
-func NewHandler(chatUseCase usecase.ChatUseCase, realtimeProxy *websocket.RealtimeProxy) *Handler {
+func NewHandler(chatUseCase usecase.ChatUseCase, realtimeProxy *websocket.RealtimeProxy, quotaRepo repository.QuotaRepository) *Handler {
 	return &Handler{
 		chatUseCase:   chatUseCase,
 		realtimeProxy: realtimeProxy,
+		quotaRepo:     quotaRepo,
 	}
 }
 
-// HealthCheck は ALB やコンテナのヘルスチェック用エンドポイント (GET /health)
-func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
+// SetShuttingDown はシャットダウン状態を更新する (Readiness を 503 に切り替える)
+func (h *Handler) SetShuttingDown(val bool) {
+	h.isShuttingDown.Store(val)
+}
+
+// Liveness はプロセスの死活監視用エンドポイント (GET /health/live, GET /livez)
+// 外部依存関係を見ず、プロセスが稼働中であれば常に 200 OK を返す
+func (h *Handler) Liveness(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]string{
-		"status": "ok",
+		"status": "alive",
 	})
+}
+
+// Readiness はトラフィック受付準備完了の監視用エンドポイント (GET /health/ready, GET /readyz)
+// 1. シャットダウン移行中の場合は即座に 503 を返し、ロードバランサに新規流入を止めさせる
+// 2. DynamoDB / メモリストアの疎通を確認する
+func (h *Handler) Readiness(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	if h.isShuttingDown.Load() {
+		WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status":  "terminating",
+			"message": "server is gracefully shutting down",
+		})
+		return
+	}
+
+	if h.quotaRepo != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		if err := h.quotaRepo.Ping(ctx); err != nil {
+			WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"status":  "degraded",
+				"message": "database health check failed",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"status":   "ready",
+		"database": "connected",
+	})
+}
+
+// HealthCheck は後方互換用エンドポイント (GET /health)
+func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	h.Readiness(w, r)
 }
 
 // ChatCompletions は OpenAI 互換のチャット補完エンドポイント (POST /v1/chat/completions)
