@@ -14,6 +14,7 @@ import (
 	"github.com/northfieldzz/llm_gateway/internal/infrastructure/config"
 	"github.com/northfieldzz/llm_gateway/internal/infrastructure/dynamodb"
 	"github.com/northfieldzz/llm_gateway/internal/infrastructure/logger"
+	"github.com/northfieldzz/llm_gateway/internal/infrastructure/metrics"
 	"github.com/northfieldzz/llm_gateway/internal/infrastructure/notifier"
 	"github.com/northfieldzz/llm_gateway/internal/infrastructure/proxy"
 	"github.com/northfieldzz/llm_gateway/internal/infrastructure/ratelimit"
@@ -40,8 +41,11 @@ func main() {
 	// プロバイダ有効化状況のロギング
 	log.Printf("[INFO] Provider Status -> Azure (GPT/Claude): %t", openAIAdapter.IsEnabled())
 
+	// Prometheus メトリクス
+	promMetrics := metrics.NewMetrics()
+
 	// プロキシ & WebSocket
-	llmProxy := proxy.NewLLMProxy(usageLogger, quotaRepo)
+	llmProxy := proxy.NewLLMProxy(usageLogger, quotaRepo, promMetrics)
 	realtimeProxy := websocket.NewRealtimeProxy(cfg)
 
 	// 3. ユースケース層の初期化
@@ -61,7 +65,7 @@ func main() {
 
 	// 5. プレゼンテーション層（HTTP ハンドラ・ミドルウェア・レートリミッター）の初期化
 	rateLimiter := ratelimit.NewMemoryRateLimiter(cfg.RateLimitRPM)
-	rateLimitMiddleware := delivery.NewRateLimitMiddleware(rateLimiter)
+	rateLimitMiddleware := delivery.NewRateLimitMiddleware(rateLimiter, promMetrics)
 	authMiddleware := delivery.NewAuthMiddleware(authUseCase)
 	handler := delivery.NewHandler(chatUseCase, realtimeProxy, quotaRepo)
 	adminHandler := delivery.NewAdminHandler(adminUseCase, batchUseCase, cfg.AdminAPIKey)
@@ -79,6 +83,7 @@ func main() {
 	mux.HandleFunc("/health/ready", handler.Readiness)
 	mux.HandleFunc("/livez", handler.Liveness)
 	mux.HandleFunc("/readyz", handler.Readiness)
+	mux.Handle("/metrics", promMetrics.Handler())
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

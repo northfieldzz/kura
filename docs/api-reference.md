@@ -24,6 +24,7 @@ LLM Gateway では、API 定義の二重管理・ドキュメントの陳腐化�
 | `/api/llm/health` | `GET` | 不要 | Huma v2 形式総合ヘルスチェック |
 | `/api/llm/health/live` | `GET` | 不要 | Huma v2 形式 Liveness プローブ |
 | `/api/llm/health/ready` | `GET` | 不要 | Huma v2 形式 Readiness プローブ |
+| `/metrics` | `GET` | 不要 | **Prometheus メトリクス**: リクエスト数、レイテンシー、TTFT、トークン消費量、推定コスト、429拒絶数、稼働プロセス統計 |
 
 ### 2.2 推論・中継 API (OpenAI 互換)
 | パス | メソッド | 認証 | 概要 |

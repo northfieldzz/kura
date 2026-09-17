@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
 	"github.com/northfieldzz/llm_gateway/internal/domain/service"
+	"github.com/northfieldzz/llm_gateway/internal/infrastructure/metrics"
 	"github.com/northfieldzz/llm_gateway/internal/usecase"
 )
 
@@ -103,11 +104,16 @@ func GetRequestIDFromContext(ctx context.Context) string {
 // RateLimitMiddleware はテナント/キー単位のオンデマンドなレート制限（RPM）を担う HTTP ミドルウェア
 type RateLimitMiddleware struct {
 	limiter service.RateLimiter
+	metrics *metrics.Metrics
 }
 
 // NewRateLimitMiddleware は RateLimitMiddleware を生成する
-func NewRateLimitMiddleware(limiter service.RateLimiter) *RateLimitMiddleware {
-	return &RateLimitMiddleware{limiter: limiter}
+func NewRateLimitMiddleware(limiter service.RateLimiter, m ...*metrics.Metrics) *RateLimitMiddleware {
+	var metricCollector *metrics.Metrics
+	if len(m) > 0 {
+		metricCollector = m[0]
+	}
+	return &RateLimitMiddleware{limiter: limiter, metrics: metricCollector}
 }
 
 // Wrap は HTTP ハンドラをレート制限判定でラップする
@@ -146,6 +152,12 @@ func (m *RateLimitMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		if !allowed {
+			serviceID := "default"
+			if tc := GetTenantContextFromContext(r.Context()); tc != nil && tc.ServiceID != "" {
+				serviceID = tc.ServiceID
+			}
+			m.metrics.RecordRateLimited(serviceID)
+
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds()+1)))
 			WriteError(w, entity.NewStandardError(
 				http.StatusTooManyRequests,

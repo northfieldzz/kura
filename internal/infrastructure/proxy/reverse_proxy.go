@@ -15,6 +15,7 @@ import (
 	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
 	"github.com/northfieldzz/llm_gateway/internal/domain/repository"
 	"github.com/northfieldzz/llm_gateway/internal/domain/service"
+	"github.com/northfieldzz/llm_gateway/internal/infrastructure/metrics"
 )
 
 // LLMProxy は HTTP / SSE ストリーミングリバースプロキシ
@@ -22,10 +23,15 @@ type LLMProxy struct {
 	transport   *http.Transport
 	usageLogger service.UsageLogger
 	quotaRepo   repository.QuotaRepository
+	metrics     *metrics.Metrics
 }
 
 // NewLLMProxy は LLMProxy インスタンスを生成する
-func NewLLMProxy(logger service.UsageLogger, quotaRepo repository.QuotaRepository) *LLMProxy {
+func NewLLMProxy(logger service.UsageLogger, quotaRepo repository.QuotaRepository, m ...*metrics.Metrics) *LLMProxy {
+	var metricCollector *metrics.Metrics
+	if len(m) > 0 {
+		metricCollector = m[0]
+	}
 	return &LLMProxy{
 		transport: &http.Transport{
 			MaxIdleConns:        1000,
@@ -35,6 +41,7 @@ func NewLLMProxy(logger service.UsageLogger, quotaRepo repository.QuotaRepositor
 		},
 		usageLogger: logger,
 		quotaRepo:   quotaRepo,
+		metrics:     metricCollector,
 	}
 }
 
@@ -46,6 +53,9 @@ func (p *LLMProxy) ServeForward(
 	reqObj *entity.ChatCompletionRequest,
 	adapter service.Adapter,
 ) {
+	p.metrics.IncActive()
+	defer p.metrics.DecActive()
+
 	ctx := r.Context()
 	gatewayStartTime := time.Now()
 
@@ -172,6 +182,7 @@ func (p *LLMProxy) handleStreaming(
 			if !ttftRecorded {
 				ttftMs = time.Since(vendorStartTime).Milliseconds()
 				ttftRecorded = true
+				p.metrics.RecordTTFT(reqObj.Model, time.Since(vendorStartTime))
 			}
 
 			// usage のインターセプト
@@ -230,6 +241,18 @@ func (p *LLMProxy) handleStreaming(
 		cost = entity.CalculateCost(reqObj.Model, promptTokens, completionTokens)
 		p.recordUsage(tenantCtx, reqObj.Model, promptTokens, completionTokens, totalTokens, cost)
 	}
+
+	// Prometheus メトリクス記録
+	status := http.StatusOK
+	if clientDisconnected {
+		status = 499
+	}
+	serviceID := "default"
+	if tenantCtx != nil && tenantCtx.ServiceID != "" {
+		serviceID = tenantCtx.ServiceID
+	}
+	p.metrics.RecordRequest(reqObj.Model, true, status, totalDuration, serviceID)
+	p.metrics.RecordTokens(reqObj.Model, promptTokens, completionTokens, totalTokens, cost, serviceID)
 }
 
 func (p *LLMProxy) handleNonStreaming(
@@ -328,6 +351,14 @@ func (p *LLMProxy) handleNonStreaming(
 	if _, err := w.Write(normalizedBody); err != nil {
 		log.Printf("[INFO] Failed to write response to client (client likely disconnected). RequestID: %s, Err: %v", requestID, err)
 	}
+
+	// Prometheus メトリクス記録
+	serviceID := "default"
+	if tenantCtx != nil && tenantCtx.ServiceID != "" {
+		serviceID = tenantCtx.ServiceID
+	}
+	p.metrics.RecordRequest(reqObj.Model, false, resp.StatusCode, totalDuration, serviceID)
+	p.metrics.RecordTokens(reqObj.Model, promptTokens, completionTokens, totalTokens, cost, serviceID)
 }
 
 func (p *LLMProxy) recordUsage(
