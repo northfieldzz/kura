@@ -20,7 +20,7 @@ OpenAI 互換のインターフェースを提供し、Microsoft Foundry (旧 Az
                                       |
                                       v
        +-------------------------------------------------------------+
-       |                         LLM Gateway                         |
+       |                         Kura                         |
        |  - バーチャルキー認証 & モデル認可 (403 Forbidden)          |
        |  - 仮想モデルエイリアス解決 (fast, smart, flash)            |
        |  - 動的レートリミット (RPM 制御: 429 Too Many Requests)     |
@@ -42,7 +42,7 @@ OpenAI 互換のインターフェースを提供し、Microsoft Foundry (旧 Az
                                      v
                        +---------------------------+
                        |      Amazon DynamoDB      |
-                       |   Table: LLMGatewayUsage  |
+                       |   Table: KuraUsage  |
                        +---------------------------+
 ```
 
@@ -53,7 +53,7 @@ OpenAI 互換のインターフェースを提供し、Microsoft Foundry (旧 Az
 クリーンアーキテクチャの原則に準拠し、依存関係が内側（ドメイン層）に向かうレイヤード構造を採用している。
 
 ```
-llm_gateway/
+kura/
 ├── cmd/
 │   ├── server/                     # Gateway 本体エントリーポイント
 │   └── mock_server/                # Microsoft Foundry & AI Studio 統合モックサーバー
@@ -115,7 +115,7 @@ llm_gateway/
 
 ## 4. パフォーマンス & メモリアロケーション検証 (ベンチマーク)
 
-LLM Gateway では、大量のリクエストおよび長時間の SSE ストリーミング中継において Go ランタイムの GC（ガベージコレクション）負荷を最小限に抑えるため、ホットパスにおける**ゼロアロケーション（Zero Allocation）**および省メモリ設計を徹底している。
+Kura では、大量のリクエストおよび長時間の SSE ストリーミング中継において Go ランタイムの GC（ガベージコレクション）負荷を最小限に抑えるため、ホットパスにおける**ゼロアロケーション（Zero Allocation）**および省メモリ設計を徹底している。
 
 ### 4.1 ベンチマーク実測結果 (`go test -bench=. -benchmem`)
 

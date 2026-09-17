@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/domain/repository"
-	"github.com/northfieldzz/llm_gateway/internal/domain/service"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/metrics"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/repository"
+	"github.com/northfieldzz/kura/internal/domain/service"
+	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
 )
 
 // LLMProxy は HTTP / SSE ストリーミングリバースプロキシ

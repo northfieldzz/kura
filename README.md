@@ -1,9 +1,9 @@
-# LLM Gateway (AWS × Go)
+# Kura (AWS × Go)
 
 マルチテナント環境における大規模言語モデル（Microsoft Foundry, Google Gemini 等）へのアクセスを一元管理・中継する、超軽量・高パフォーマンスな API ゲートウェイ。
 Standard Go Project Layout をベースにしたレイヤードアーキテクチャ（クリーンアーキテクチャ簡略版）を採用。
 
-## 💡 なぜ LLM Gateway を作ったのか？（背景と目的）
+## 💡 なぜ Kura を作ったのか？（背景と目的）
 
 マルチプロダクトや複数チームが関わる開発において、各アプリケーションが各種 LLM（Microsoft Foundry, Google Gemini 等）を直接呼び出す運用には、以下のような課題が発生します。
 
@@ -51,7 +51,7 @@ Standard Go Project Layout をベースにしたレイヤードアーキテク�
 ## ディレクトリ構造
 
 ```
-llm_gateway/
+kura/
 ├── cmd/
 │   ├── server/                     # Gateway 本体エントリーポイント
 │   └── mock_server/                # Microsoft Foundry & AI Studio 統合モックサーバー
@@ -105,7 +105,7 @@ llm_gateway/
 
 ### 1. 単体起動 (Go 環境)
 ```bash
-cd llm_gateway
+cd kura
 go run ./cmd/server
 ```
 ※ DynamoDB が未起動の場合、自動的にインメモリストアにフォールバックして単体起動します。
@@ -132,7 +132,7 @@ nerdctl compose up -d --build
 | `DEFAULT_TOKEN_QUOTA` | 初期テナントの月間トークン上限 | `1000000` |
 | `RATE_LIMIT_RPM` | 1分あたりの最大リクエスト数 (0で無制限) | `600` |
 | `DYNAMODB_ENDPOINT` | DynamoDB エンドポイント (ローカル: `http://dynamodb:8000`) | 空 (AWS デフォルト) |
-| `DYNAMODB_TABLE_NAME` | DynamoDB 利用量テーブル名 | `LLMGatewayUsage` |
+| `DYNAMODB_TABLE_NAME` | DynamoDB 利用量テーブル名 | `KuraUsage` |
 | `MICROSOFT_FOUNDRY_ENDPOINT` | Microsoft Foundry ベース URL (旧 `AZURE_OPENAI_ENDPOINT`) | 空 |
 | `MICROSOFT_FOUNDRY_API_KEY` | Microsoft Foundry API キー (旧 `AZURE_OPENAI_API_KEY`) | 空 |
 | `MICROSOFT_FOUNDRY_API_VERSION`| Microsoft Foundry API バージョン (旧 `AZURE_OPENAI_API_VERSION`) | `2024-02-15-preview` |

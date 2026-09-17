@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/entity"
 )
 
 type mockQuotaRepo struct {

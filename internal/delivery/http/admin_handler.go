@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/usecase"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/usecase"
 )
 
 

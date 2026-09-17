@@ -7,10 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/domain/service"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/proxy"
-	"github.com/northfieldzz/llm_gateway/internal/usecase"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/service"
+	"github.com/northfieldzz/kura/internal/infrastructure/proxy"
+	"github.com/northfieldzz/kura/internal/usecase"
 )
 
 type dummyAdapter struct {

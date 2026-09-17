@@ -1,14 +1,14 @@
 # DynamoDB スキーマ & 永続化仕様書
 
 ## 1. 概要
-LLM Gateway は、超高並行なリクエスト環境下でもボトルネックを作らず、低レイテンシー・高スループットを維持するため、Amazon DynamoDB の **Single Table Design** を採用している。
+Kura は、超高並行なリクエスト環境下でもボトルネックを作らず、低レイテンシー・高スループットを維持するため、Amazon DynamoDB の **Single Table Design** を採用している。
 複数テーブルの JOIN や高負荷なテーブル全件スキャン (`Scan`) を完全に排除し、すべての認証・クォータ判定・集計クエリを O(1) または効率的な `Query` で完結させる。
 
 ---
 
 ## 2. テーブル & インデックス定義
 
-- **テーブル名**: `LLMGatewayUsage`（環境変数 `DYNAMODB_TABLE_NAME`）
+- **テーブル名**: `KuraUsage`（環境変数 `DYNAMODB_TABLE_NAME`）
 - **パーティションキー (PK)**: `pk` (String)
 - **ソートキー (SK)**: `sk` (String)
 - **課金モード**: オンデマンド (`PAY_PER_REQUEST`)

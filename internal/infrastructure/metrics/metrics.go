@@ -37,16 +37,16 @@ func NewMetrics() *Metrics {
 
 		RequestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Namespace: "llm_gateway",
+				Namespace: "kura",
 				Name:      "requests_total",
-				Help:      "Total number of HTTP / WebSocket requests handled by LLM Gateway",
+				Help:      "Total number of HTTP / WebSocket requests handled by Kura",
 			},
 			[]string{"model", "status", "stream", "service_id"},
 		),
 
 		TokensTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Namespace: "llm_gateway",
+				Namespace: "kura",
 				Name:      "tokens_total",
 				Help:      "Total number of tokens consumed",
 			},
@@ -55,9 +55,9 @@ func NewMetrics() *Metrics {
 
 		RequestDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Namespace: "llm_gateway",
+				Namespace: "kura",
 				Name:      "request_duration_seconds",
-				Help:      "Total latency of LLM Gateway requests in seconds",
+				Help:      "Total latency of Kura requests in seconds",
 				Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120},
 			},
 			[]string{"model", "stream", "status"},
@@ -65,7 +65,7 @@ func NewMetrics() *Metrics {
 
 		TimeToFirstToken: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Namespace: "llm_gateway",
+				Namespace: "kura",
 				Name:      "time_to_first_token_seconds",
 				Help:      "Time to first token (TTFT) for streaming responses in seconds",
 				Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10},
@@ -75,7 +75,7 @@ func NewMetrics() *Metrics {
 
 		EstimatedCostTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Namespace: "llm_gateway",
+				Namespace: "kura",
 				Name:      "estimated_cost_usd_total",
 				Help:      "Cumulative estimated cost in USD based on token usage",
 			},
@@ -84,7 +84,7 @@ func NewMetrics() *Metrics {
 
 		RateLimitedTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Namespace: "llm_gateway",
+				Namespace: "kura",
 				Name:      "rate_limited_total",
 				Help:      "Total number of requests rejected by dynamic rate limiter (RPM)",
 			},
@@ -93,7 +93,7 @@ func NewMetrics() *Metrics {
 
 		ActiveRequests: prometheus.NewGauge(
 			prometheus.GaugeOpts{
-				Namespace: "llm_gateway",
+				Namespace: "kura",
 				Name:      "active_requests",
 				Help:      "Number of currently active requests in flight",
 			},

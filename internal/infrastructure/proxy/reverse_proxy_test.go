@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/domain/service"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/proxy"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/service"
+	"github.com/northfieldzz/kura/internal/infrastructure/proxy"
 )
 
 // mockTestAdapter はテスト用のアダプター

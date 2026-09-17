@@ -10,10 +10,10 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/domain/service"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/metrics"
-	"github.com/northfieldzz/llm_gateway/internal/usecase"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/service"
+	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
+	"github.com/northfieldzz/kura/internal/usecase"
 )
 
 type contextKey string

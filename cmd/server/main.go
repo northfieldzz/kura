@@ -9,24 +9,24 @@ import (
 	"syscall"
 	"time"
 
-	delivery "github.com/northfieldzz/llm_gateway/internal/delivery/http"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/adapter"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/config"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/dynamodb"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/logger"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/metrics"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/notifier"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/proxy"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/ratelimit"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/scheduler"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/websocket"
-	"github.com/northfieldzz/llm_gateway/internal/usecase"
+	delivery "github.com/northfieldzz/kura/internal/delivery/http"
+	"github.com/northfieldzz/kura/internal/infrastructure/adapter"
+	"github.com/northfieldzz/kura/internal/infrastructure/config"
+	"github.com/northfieldzz/kura/internal/infrastructure/dynamodb"
+	"github.com/northfieldzz/kura/internal/infrastructure/logger"
+	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
+	"github.com/northfieldzz/kura/internal/infrastructure/notifier"
+	"github.com/northfieldzz/kura/internal/infrastructure/proxy"
+	"github.com/northfieldzz/kura/internal/infrastructure/ratelimit"
+	"github.com/northfieldzz/kura/internal/infrastructure/scheduler"
+	"github.com/northfieldzz/kura/internal/infrastructure/websocket"
+	"github.com/northfieldzz/kura/internal/usecase"
 )
 
 func main() {
 	// 1. 設定のロード
 	cfg := config.Load()
-	log.Printf("[INFO] Starting LLM Gateway on port %s (Region: %s)", cfg.Port, cfg.AWSRegion)
+	log.Printf("[INFO] Starting Kura on port %s (Region: %s)", cfg.Port, cfg.AWSRegion)
 
 	// 2. インフラ層の初期化
 	// 非同期構造化ロガー (CloudWatch Logs 向け)
@@ -127,5 +127,5 @@ func main() {
 		log.Printf("[ERROR] Error closing usage logger: %v", err)
 	}
 
-	log.Println("[INFO] LLM Gateway exited successfully.")
+	log.Println("[INFO] Kura exited successfully.")
 }

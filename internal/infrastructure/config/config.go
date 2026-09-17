@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-// Config は LLM Gateway の全体設定構造体
+// Config は Kura の全体設定構造体
 type Config struct {
 	Port                     string
 	AWSRegion                string
@@ -40,7 +40,7 @@ func Load() *Config {
 		DefaultTokenQuota:        getEnvAsInt64("DEFAULT_TOKEN_QUOTA", 1000000), // デフォルト100万トークン
 		LogChannelBufferSize:     getEnvAsInt("LOG_CHANNEL_BUFFER_SIZE", 10000),
 		DynamoDBEndpoint:         getEnv("DYNAMODB_ENDPOINT", ""),
-		DynamoDBTableName:        getEnv("DYNAMODB_TABLE_NAME", "LLMGatewayUsage"),
+		DynamoDBTableName:        getEnv("DYNAMODB_TABLE_NAME", "KuraUsage"),
 		AdminAPIKey:              getEnv("ADMIN_API_KEY", "sk-admin-master-key"),
 		AzureOpenAIEndpointJapan: getEnv("MICROSOFT_FOUNDRY_ENDPOINT_JAPAN", getEnv("FOUNDRY_ENDPOINT_JAPAN", getEnv("AZURE_OPENAI_ENDPOINT_JAPAN", ""))),
 		DefaultBillingType:       getEnv("DEFAULT_BILLING_TYPE", "payg"),

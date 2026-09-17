@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/entity"
 )
 
 // QuotaRepository は認証情報の検索および当月利用量・クォータ情報の読み書きインターフェース

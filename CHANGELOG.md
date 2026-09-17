@@ -1,6 +1,6 @@
 # Release v0.0.1
 
-LLM Gateway の初回公式リリースです。  
+Kura の初回公式リリースです。  
 マルチテナント環境における大規模言語モデルへのアクセスを一元管理・中継する、超軽量・高パフォーマンスな API ゲートウェイを提供します。
 
 ---
@@ -50,7 +50,7 @@ LLM Gateway の初回公式リリースです。
 ---
 
 ## 📦 リリースに含まれるコンポーネント
-- **LLM Gateway コアエンジン**: `cmd/server/main.go`
+- **Kura コアエンジン**: `cmd/server/main.go`
 - **統合モックサーバー**: `cmd/mock_server/main.go`
 - **DynamoDB ローカル検証環境**: `dynamodb.compose.yaml`
-- **Docker Compose 定義**: `compose.yaml` (専用ネットワーク `llm_gateway_network` 構成)
+- **Docker Compose 定義**: `compose.yaml` (専用ネットワーク `kura_network` 構成)

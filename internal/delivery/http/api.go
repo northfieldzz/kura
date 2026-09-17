@@ -9,8 +9,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/usecase"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/usecase"
 )
 
 func init() {
@@ -217,7 +217,7 @@ func SetupHumaAPI(
 	adminHandler *AdminHandler,
 	rateLimitMiddleware ...*RateLimitMiddleware,
 ) huma.API {
-	config := huma.DefaultConfig("LLM Gateway", "2.0.0")
+	config := huma.DefaultConfig("Kura", "2.0.0")
 	config.DocsRenderer = huma.DocsRendererScalar
 	config.DocsPath = "/api/v1/llm/docs"
 	config.OpenAPIPath = "/api/v1/llm/openapi"

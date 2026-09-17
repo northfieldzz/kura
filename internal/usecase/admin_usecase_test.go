@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/entity"
 )
 
 func TestAdminUseCase_GetMonthlyUsage(t *testing.T) {

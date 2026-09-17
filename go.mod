@@ -1,4 +1,4 @@
-module github.com/northfieldzz/llm_gateway
+module github.com/northfieldzz/kura
 
 go 1.25.0
 

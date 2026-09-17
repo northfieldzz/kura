@@ -1,6 +1,6 @@
-# LLM Gateway システム仕様書 (SPECIFICATION)
+# Kura システム仕様書 (SPECIFICATION)
 
-本ドキュメントは、LLM Gateway の全体仕様書のインデックスです。  
+本ドキュメントは、Kura の全体仕様書のインデックスです。  
 詳細な技術仕様は、責務ごとに以下の各ドキュメントへ細分化されています。
 各エンドポイントの詳細なリクエスト/レスポンススキーマは、自動生成される **[Scalar API ドキュメント](http://localhost:8088/api/v1/llm/docs)** を参照してください。
 

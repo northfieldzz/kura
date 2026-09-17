@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/dynamodb"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/infrastructure/dynamodb"
 )
 
 type mockNotifier struct {

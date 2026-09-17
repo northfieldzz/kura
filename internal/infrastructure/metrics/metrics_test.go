@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/metrics"
+	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
 )
 
 func TestMetrics_Handler(t *testing.T) {
@@ -40,13 +40,13 @@ func TestMetrics_Handler(t *testing.T) {
 	bodyStr := string(body)
 
 	expectedKeywords := []string{
-		"llm_gateway_requests_total",
-		"llm_gateway_tokens_total",
-		"llm_gateway_request_duration_seconds",
-		"llm_gateway_time_to_first_token_seconds",
-		"llm_gateway_estimated_cost_usd_total",
-		"llm_gateway_rate_limited_total",
-		"llm_gateway_active_requests",
+		"kura_requests_total",
+		"kura_tokens_total",
+		"kura_request_duration_seconds",
+		"kura_time_to_first_token_seconds",
+		"kura_estimated_cost_usd_total",
+		"kura_rate_limited_total",
+		"kura_active_requests",
 		"go_goroutines", // Go コレクター
 	}
 

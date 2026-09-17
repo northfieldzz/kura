@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/domain/repository"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/websocket"
-	"github.com/northfieldzz/llm_gateway/internal/usecase"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/repository"
+	"github.com/northfieldzz/kura/internal/infrastructure/websocket"
+	"github.com/northfieldzz/kura/internal/usecase"
 )
 
 // Handler は Gateway の HTTP リクエストハンドラ群

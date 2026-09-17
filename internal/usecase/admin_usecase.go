@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/domain/repository"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/repository"
 )
 
 // SetLimitRequest はサービス上限設定リクエスト

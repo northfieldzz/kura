@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/adapter"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/config"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/infrastructure/adapter"
+	"github.com/northfieldzz/kura/internal/infrastructure/config"
 )
 
 func TestOpenAIAdapter_AzureEndpoint(t *testing.T) {

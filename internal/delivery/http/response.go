@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/entity"
 )
 
 // WriteJSON は JSON レスポンスを出力する

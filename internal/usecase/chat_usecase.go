@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/domain/service"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/proxy"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/service"
+	"github.com/northfieldzz/kura/internal/infrastructure/proxy"
 )
 
 // ChatUseCase はリクエストのプロバイダ解決および転送処理を行うインターフェース

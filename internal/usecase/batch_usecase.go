@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
-	"github.com/northfieldzz/llm_gateway/internal/domain/repository"
-	"github.com/northfieldzz/llm_gateway/internal/infrastructure/notifier"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/repository"
+	"github.com/northfieldzz/kura/internal/infrastructure/notifier"
 )
 
 // BatchUseCase は定期バッチ処理のビジネスロジックを担うインターフェース
@@ -62,7 +62,7 @@ func (u *batchUseCase) RunMonthlyReport(ctx context.Context) error {
 
 	if len(tenants) == 0 {
 		msg := fmt.Sprintf("対象月: %s\n前月の利用実績レコードは存在しませんでした（利用量 0）。", lastMonth)
-		_ = u.notifier.Send(ctx, fmt.Sprintf("📊 LLM Gateway 月次利用実績レポート (%s)", lastMonth), msg, false)
+		_ = u.notifier.Send(ctx, fmt.Sprintf("📊 Kura 月次利用実績レポート (%s)", lastMonth), msg, false)
 		return nil
 	}
 
@@ -116,7 +116,7 @@ func (u *batchUseCase) RunMonthlyReport(ctx context.Context) error {
 			s.serviceID, s.tenantCount, s.totalTokens, s.totalCost))
 	}
 
-	title := fmt.Sprintf("📊 LLM Gateway 月次利用実績レポート (%s)", lastMonth)
+	title := fmt.Sprintf("📊 Kura 月次利用実績レポート (%s)", lastMonth)
 	return u.notifier.Send(ctx, title, sb.String(), false)
 }
 

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/entity"
 )
 
 func BenchmarkParseTagsHeader(b *testing.B) {

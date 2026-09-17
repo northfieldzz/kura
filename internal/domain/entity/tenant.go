@@ -32,7 +32,7 @@ type ModelUsage struct {
 	Cost             float64 `json:"cost" dynamodbav:"cost"`
 }
 
-// TenantMonthlyUsage は DynamoDB テーブル LLMGatewayUsage の月次テナント消費実績レコード
+// TenantMonthlyUsage は DynamoDB テーブル KuraUsage の月次テナント消費実績レコード
 // PK: SVC#<service_id>#TENANT#<tenant_id>, SK: MONTH#<YYYY-MM>
 type TenantMonthlyUsage struct {
 	PK          string                 `json:"pk" dynamodbav:"pk"`

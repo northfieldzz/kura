@@ -15,7 +15,7 @@ services:
     networks:
       - default
 
-  # ─── LLM Gateway Core Engine (Go) ───────────────────────────────────
+  # ─── Kura Core Engine (Go) ───────────────────────────────────
   gateway:
     build:
       context: .
@@ -27,7 +27,7 @@ services:
     environment:
       - PORT=8080
       - DYNAMODB_ENDPOINT=http://dynamodb:8000
-      - DYNAMODB_TABLE_NAME=LLMGatewayUsage
+      - DYNAMODB_TABLE_NAME=KuraUsage
       - ADMIN_API_KEY=${ADMIN_API_KEY:-sk-admin-master-key}
       - AWS_REGION=ap-northeast-1
       - AWS_ACCESS_KEY_ID=dummy
@@ -59,4 +59,4 @@ services:
 
 networks:
   default:
-    name: llm_gateway_network
+    name: kura_network

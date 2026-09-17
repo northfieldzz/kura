@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/northfieldzz/llm_gateway/internal/domain/service"
+	"github.com/northfieldzz/kura/internal/domain/service"
 )
 
 type memoryRateLimiter struct {

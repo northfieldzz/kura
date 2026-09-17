@@ -1,7 +1,7 @@
 # スケジューラー & オブザーバビリティ仕様書
 
 ## 1. 概要
-LLM Gateway は、外部の AWS EventBridge や AWS Lambda を必要とせず、Go サーバープロセス内（Goroutine）で自律的に動作する内蔵バッチスケジューラー（`CronScheduler`）を備えている。
+Kura は、外部の AWS EventBridge や AWS Lambda を必要とせず、Go サーバープロセス内（Goroutine）で自律的に動作する内蔵バッチスケジューラー（`CronScheduler`）を備えている。
 また、メインのリクエスト処理を一切ブロックしない非同期構造化ロガーにより、CloudWatch Logs や Firehose への低遅延なログ転送を実現する。
 
 ---
@@ -77,11 +77,11 @@ Gateway は標準で Prometheus スクレイピング用エンドポイント（
 
 | メトリクス名 | 種別 | ラベル | 説明 |
 |---|:---:|---|---|
-| `llm_gateway_requests_total` | Counter | `model`, `status`, `stream`, `service_id` | HTTP / WebSocket リクエスト総数 |
-| `llm_gateway_tokens_total` | Counter | `model`, `type` (prompt/completion/total), `service_id` | 累積トークン消費量 |
-| `llm_gateway_request_duration_seconds` | Histogram | `model`, `stream`, `status` | リクエスト全体の所要時間（レイテンシー分布） |
-| `llm_gateway_time_to_first_token_seconds` | Histogram | `model` | ストリーミング時の初速トークン生成時間 (TTFT) |
-| `llm_gateway_estimated_cost_usd_total` | Counter | `model`, `service_id` | トークン消費に基づく概算コスト累計 (USD) |
-| `llm_gateway_rate_limited_total` | Counter | `service_id` | 動的レートリミッターによる 429 拒絶数 |
-| `llm_gateway_active_requests` | Gauge | なし | 現在処理中のアクティブ接続数 |
+| `kura_requests_total` | Counter | `model`, `status`, `stream`, `service_id` | HTTP / WebSocket リクエスト総数 |
+| `kura_tokens_total` | Counter | `model`, `type` (prompt/completion/total), `service_id` | 累積トークン消費量 |
+| `kura_request_duration_seconds` | Histogram | `model`, `stream`, `status` | リクエスト全体の所要時間（レイテンシー分布） |
+| `kura_time_to_first_token_seconds` | Histogram | `model` | ストリーミング時の初速トークン生成時間 (TTFT) |
+| `kura_estimated_cost_usd_total` | Counter | `model`, `service_id` | トークン消費に基づく概算コスト累計 (USD) |
+| `kura_rate_limited_total` | Counter | `service_id` | 動的レートリミッターによる 429 拒絶数 |
+| `kura_active_requests` | Gauge | なし | 現在処理中のアクティブ接続数 |
 | `go_*`, `process_*` | Various | なし | Go ランタイム（Goroutine数、メモリ、GC）およびプロセスメトリクス |
