@@ -8,9 +8,6 @@ import (
 
 // QuotaRepository は認証情報の検索および当月利用量・クォータ情報の読み書きインターフェース
 type QuotaRepository interface {
-	// FindTenantContextByAPIKey は社内発行APIキーからサービス情報を特定しTenantContextを取得する
-	FindTenantContextByAPIKey(ctx context.Context, apiKey string) (*entity.TenantContext, error)
-
 	// GetTenantUsage は指定サービス・テナントの指定月の累計利用量およびリミット設定を取得する
 	GetTenantUsage(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error)
 
@@ -20,8 +17,14 @@ type QuotaRepository interface {
 	// SetServiceLimit はサービス全体の月次コスト上限 (USD) や課金タイプを設定・更新する
 	SetServiceLimit(ctx context.Context, serviceID string, costLimit float64, billingType string) error
 
-	// SetTenantLimit はサービス全体のクォータ設定を更新する (互換用)
+	// SetTenantLimit はサービス配下のテナント個別の月次コスト上限 (USD) や課金タイプを設定・更新する
 	SetTenantLimit(ctx context.Context, serviceID, tenantID string, costLimit float64, billingType string) error
+
+	// GetTenantConfig はテナント個別の永続設定 (Master レコード) を取得する
+	GetTenantConfig(ctx context.Context, serviceID, tenantID string) (*entity.TenantConfig, error)
+
+	// SetTenantConfig はテナント個別の永続設定 (Master レコード) を保存・更新する
+	SetTenantConfig(ctx context.Context, cfg *entity.TenantConfig) error
 
 	// GetServiceConfig はサービスの永続設定 (Master レコード) を取得する
 	GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error)
@@ -31,18 +34,6 @@ type QuotaRepository interface {
 
 	// GetServiceMonthlyUsage は指定サービス全体の月次利用実績およびモデル別内訳を取得する (Admin API 向け)
 	GetServiceMonthlyUsage(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error)
-
-	// CreateAPIKey は新しい API キーレコードを登録する
-	CreateAPIKey(ctx context.Context, record *entity.APIKeyRecord) error
-
-	// GetAPIKey は API キーでレコードを直接検索する
-	GetAPIKey(ctx context.Context, apiKey string) (*entity.APIKeyRecord, error)
-
-	// ListAPIKeysByService は指定サービスに発行された API キー一覧を取得する
-	ListAPIKeysByService(ctx context.Context, serviceID string) ([]*entity.APIKeyRecord, error)
-
-	// RevokeAPIKey は API キーを失効（無効化）する
-	RevokeAPIKey(ctx context.Context, apiKey string) error
 
 	// AcquireLock は DynamoDB の条件付き書き込みによる分散ロックを獲得する (二重実行防止)
 	AcquireLock(ctx context.Context, lockKey string, ttlSeconds int64) (bool, error)

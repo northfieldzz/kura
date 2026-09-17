@@ -23,15 +23,17 @@ Kura は、超高並行なリクエスト環境下でもボトルネックを作
 
 ## 3. エンティティ設計 & レコードパターン
 
-単一テーブル内で以下の 4 つの用途のレコードを共存管理する。
+単一テーブル内で以下の用途のレコードを共存管理する。
 
 | 用途 | PK | SK | 主な属性 | 説明 |
 |---|---|---|---|---|
 | **サービス設定 (Master)** | `SERVICE#<service_id>` | `METADATA` | `service_id`, `billing_type`, `cost_limit`, `updated_at` | サービス全体の上限・課金プラン設定（Single Source of Truth）。 |
+| **テナント個別設定 (Master)** | `SVC#<service_id>#TENANT#<tenant_id>` | `METADATA` | `service_id`, `tenant_id`, `billing_type`, `cost_limit`, `updated_at` | テナント個別の上限・課金プラン設定（未設定時はサービス設定に従う）。 |
 | **テナント月次利用実績** | `SVC#<service_id>#TENANT#<tenant_id>` | `MONTH#<YYYY-MM>` | `total_tokens`, `total_cost_usd`, `models`, `updated_at`, `ttl` | その月のトークン消費量と概算コスト（モデル別内訳含む）。 |
-| **API キー直接引当** | `KEY#<api_key>` | `METADATA` | `api_key`, `service_id`, `name`, `billing_type`, `cost_limit`, `allowed_models`, `expires_at`, `is_active`, `created_at` | リクエスト認証時の O(1) 高速検証用レコード。 |
-| **サービス別キー一覧** | `SERVICE#<service_id>` | `KEY#<api_key>` | `api_key`, `service_id`, `name`, `billing_type`, `cost_limit`, `is_active`, `created_at` | サービス配下に発行された全 API キーの高速一覧クエリ用。 |
 | **アプリ内通知** | `NOTIFICATIONS` | `NOTIFICATION#<timestamp>#<id>` | `id`, `type`, `title`, `message`, `is_alert`, `created_at` | 月次レポートや予算アラートなどの通知ログ。 |
+
+> [!NOTE]
+> クライアント認証および API キー管理は前段の tollgate（API ゲートウェイ）に委譲されたため、Kura 単独での `KEY#<api_key>` レコードの発行・読み書きは廃止（DynamoDB 側の物理スキーマ変更は不要）。
 
 ---
 

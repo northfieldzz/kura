@@ -35,7 +35,6 @@ func BenchmarkStreamingProxy_ServeForward(b *testing.B) {
 	tenantCtx := &entity.TenantContext{
 		ServiceID: "bench-service",
 		TenantID:  "tenant-bench",
-		APIKey:    "sk-bench",
 	}
 	adapter := &mockTestAdapter{targetURL: upstreamServer.URL}
 	reqObj := &entity.ChatCompletionRequest{Model: "gpt-4o", Stream: true}

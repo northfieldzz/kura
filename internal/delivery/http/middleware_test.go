@@ -25,7 +25,6 @@ func TestRateLimitMiddleware(t *testing.T) {
 	tenantCtx := &entity.TenantContext{
 		ServiceID: "demo-service",
 		TenantID:  "tenant-alpha",
-		APIKey:    "test-key",
 	}
 
 	// 1回目: 通過

@@ -27,11 +27,10 @@ type dynamodbQuotaRepository struct {
 
 type memoryQuotaRepository struct {
 	mu             sync.RWMutex
-	apiKeys        map[string]*entity.TenantContext      // apiKey -> TenantContext
-	apiKeyRecords  map[string]*entity.APIKeyRecord       // apiKey -> APIKeyRecord
 	tenantUsages   map[string]*entity.TenantMonthlyUsage // pk:sk -> TenantMonthlyUsage
 	locks          map[string]time.Time                  // lockKey -> expiration
 	serviceConfigs map[string]*entity.ServiceConfig      // serviceID -> ServiceConfig
+	tenantConfigs  map[string]*entity.TenantConfig       // serviceID:tenantID -> TenantConfig
 	notifications  []*entity.Notification                // アプリ内通知リスト
 	defaultQuota   int64
 }
@@ -76,202 +75,7 @@ const GSIServiceUsage = "GSI_ServiceUsage"
 
 // --- DynamoDB Implementation ---
 
-func (r *dynamodbQuotaRepository) FindTenantContextByAPIKey(ctx context.Context, apiKey string) (*entity.TenantContext, error) {
-	// 1. DynamoDB の APIKey レコードを検索
-	keyRec, err := r.GetAPIKey(ctx, apiKey)
-	if err == nil && keyRec != nil {
-		if !keyRec.IsActive || keyRec.IsExpired() {
-			return nil, nil // 失効済みまたは期限切れキー
-		}
-		return &entity.TenantContext{
-			ServiceID:     keyRec.ServiceID,
-			TenantID:      "default",
-			UserID:        "anonymous",
-			DataResidency: "global",
-			APIKey:        keyRec.APIKey,
-			AllowedModels: keyRec.AllowedModels,
-			KeyCostLimit:  keyRec.CostLimit,
-		}, nil
-	}
 
-	// 2. 命名規約またはフォールバック検索
-	return r.fallback.FindTenantContextByAPIKey(ctx, apiKey)
-}
-
-func (r *dynamodbQuotaRepository) CreateAPIKey(ctx context.Context, record *entity.APIKeyRecord) error {
-	record.PK = entity.BuildKeyPK(record.APIKey)
-	record.SK = "METADATA"
-	record.IsActive = true
-	now := time.Now().UTC()
-	record.CreatedAt = now
-	record.UpdatedAt = now
-
-	// サービスマスター設定を取得。既に存在すればマスターのリミットに同期、なければ初期作成
-	if existingCfg, _ := r.GetServiceConfig(ctx, record.ServiceID); existingCfg != nil {
-		record.CostLimit = existingCfg.CostLimit
-		record.BillingType = existingCfg.BillingType
-	} else if record.CostLimit > 0 || record.BillingType != "" {
-		_ = r.SetServiceConfig(ctx, &entity.ServiceConfig{
-			ServiceID:   record.ServiceID,
-			BillingType: record.BillingType,
-			CostLimit:   record.CostLimit,
-		})
-	}
-
-	item, err := attributevalue.MarshalMap(record)
-	if err != nil {
-		return fmt.Errorf("failed to marshal API key record: %w", err)
-	}
-
-	// 1. キー検索用レコード (PK: KEY#<api_key>, SK: METADATA)
-	_, err = r.client.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: aws.String(r.tableName),
-		Item:      item,
-	})
-	if err != nil {
-		log.Printf("[WARN] DynamoDB PutItem for APIKey error, fallback to memory: %v", err)
-		return r.fallback.CreateAPIKey(ctx, record)
-	}
-
-	// 2. サービス逆引き用レコード (PK: SERVICE#<service_id>, SK: KEY#<api_key>)
-	serviceItem := make(map[string]types.AttributeValue)
-	for k, v := range item {
-		serviceItem[k] = v
-	}
-	serviceItem["pk"] = &types.AttributeValueMemberS{Value: entity.BuildServiceKeysPK(record.ServiceID)}
-	serviceItem["sk"] = &types.AttributeValueMemberS{Value: entity.BuildKeySK(record.APIKey)}
-
-	_, _ = r.client.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: aws.String(r.tableName),
-		Item:      serviceItem,
-	})
-
-	_ = r.fallback.CreateAPIKey(ctx, record)
-	return nil
-}
-
-func (r *dynamodbQuotaRepository) GetAPIKey(ctx context.Context, apiKey string) (*entity.APIKeyRecord, error) {
-	out, err := r.client.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(r.tableName),
-		Key: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: entity.BuildKeyPK(apiKey)},
-			"sk": &types.AttributeValueMemberS{Value: "METADATA"},
-		},
-	})
-	if err != nil {
-		log.Printf("[WARN] DynamoDB GetItem for APIKey error, fallback to memory: %v", err)
-		return r.fallback.GetAPIKey(ctx, apiKey)
-	}
-	if out.Item == nil {
-		return r.fallback.GetAPIKey(ctx, apiKey)
-	}
-
-	var rec entity.APIKeyRecord
-	if err := attributevalue.UnmarshalMap(out.Item, &rec); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal API key record: %w", err)
-	}
-	return &rec, nil
-}
-
-func (r *dynamodbQuotaRepository) ListAPIKeysByService(ctx context.Context, serviceID string) ([]*entity.APIKeyRecord, error) {
-	var items []map[string]types.AttributeValue
-
-	if serviceID != "" {
-		out, err := r.client.Query(ctx, &dynamodb.QueryInput{
-			TableName:              aws.String(r.tableName),
-			KeyConditionExpression: aws.String("pk = :pk AND begins_with(sk, :sk_prefix)"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":pk":        &types.AttributeValueMemberS{Value: entity.BuildServiceKeysPK(serviceID)},
-				":sk_prefix": &types.AttributeValueMemberS{Value: "KEY#"},
-			},
-		})
-		if err != nil {
-			log.Printf("[WARN] DynamoDB Query for service APIKeys error, fallback to memory: %v", err)
-			return r.fallback.ListAPIKeysByService(ctx, serviceID)
-		}
-		items = out.Items
-	} else {
-		// 全サービスの API キーをスキャン取得
-		out, err := r.client.Scan(ctx, &dynamodb.ScanInput{
-			TableName:        aws.String(r.tableName),
-			FilterExpression: aws.String("begins_with(pk, :pk_prefix) AND begins_with(sk, :sk_prefix)"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":pk_prefix": &types.AttributeValueMemberS{Value: "SERVICE#"},
-				":sk_prefix": &types.AttributeValueMemberS{Value: "KEY#"},
-			},
-		})
-		if err != nil {
-			log.Printf("[WARN] DynamoDB Scan for all APIKeys error, fallback to memory: %v", err)
-			return r.fallback.ListAPIKeysByService(ctx, serviceID)
-		}
-		items = out.Items
-	}
-
-	var records []*entity.APIKeyRecord
-	if err := attributevalue.UnmarshalListOfMaps(items, &records); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal API key records: %w", err)
-	}
-
-	// サービスマスター設定が存在すれば表示用リミットを常に同期
-	if len(records) > 0 {
-		configCache := make(map[string]*entity.ServiceConfig)
-		for _, rec := range records {
-			cfg, ok := configCache[rec.ServiceID]
-			if !ok {
-				cfg, _ = r.GetServiceConfig(ctx, rec.ServiceID)
-				configCache[rec.ServiceID] = cfg
-			}
-			if cfg != nil {
-				rec.CostLimit = cfg.CostLimit
-				rec.BillingType = cfg.BillingType
-			}
-		}
-	}
-
-	return records, nil
-}
-
-func (r *dynamodbQuotaRepository) RevokeAPIKey(ctx context.Context, apiKey string) error {
-	keyRec, err := r.GetAPIKey(ctx, apiKey)
-	if err != nil || keyRec == nil {
-		return r.fallback.RevokeAPIKey(ctx, apiKey)
-	}
-
-	nowISO := time.Now().UTC().Format(time.RFC3339)
-
-	// 1. KEY#<api_key> レコードの無効化
-	_, err = r.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: aws.String(r.tableName),
-		Key: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: entity.BuildKeyPK(apiKey)},
-			"sk": &types.AttributeValueMemberS{Value: "METADATA"},
-		},
-		UpdateExpression: aws.String("SET is_active = :inactive, updated_at = :now"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":inactive": &types.AttributeValueMemberBOOL{Value: false},
-			":now":      &types.AttributeValueMemberS{Value: nowISO},
-		},
-	})
-	if err != nil {
-		log.Printf("[WARN] DynamoDB UpdateItem for APIKey revoke error, fallback to memory: %v", err)
-	}
-
-	// 2. SERVICE#<service_id> レコードの無効化
-	_, _ = r.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: aws.String(r.tableName),
-		Key: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: entity.BuildServiceKeysPK(keyRec.ServiceID)},
-			"sk": &types.AttributeValueMemberS{Value: entity.BuildKeySK(apiKey)},
-		},
-		UpdateExpression: aws.String("SET is_active = :inactive, updated_at = :now"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":inactive": &types.AttributeValueMemberBOOL{Value: false},
-			":now":      &types.AttributeValueMemberS{Value: nowISO},
-		},
-	})
-
-	return r.fallback.RevokeAPIKey(ctx, apiKey)
-}
 
 func (r *dynamodbQuotaRepository) GetTenantUsage(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error) {
 	pk := entity.BuildPK(serviceID, tenantID)
@@ -435,20 +239,59 @@ func (r *dynamodbQuotaRepository) SetServiceLimit(
 	}
 	_ = r.SetServiceConfig(ctx, svcConfig)
 
-	// 2. 配下の API キーレコードの表示用メタデータも同期更新
-	keys, err := r.ListAPIKeysByService(ctx, serviceID)
-	if err == nil {
-		for _, k := range keys {
-			k.CostLimit = costLimit
-			k.BillingType = billingType
-			_ = r.CreateAPIKey(ctx, k)
-		}
-	}
-
 	// 注: TenantMonthlyUsage は純粋な使用量集計レコードのため、不要な上限値カラムは書き込まない
 
 	// インメモリフォールバックにも反映
 	return r.fallback.SetServiceLimit(ctx, serviceID, costLimit, billingType)
+}
+
+func (r *dynamodbQuotaRepository) GetTenantConfig(ctx context.Context, serviceID, tenantID string) (*entity.TenantConfig, error) {
+	pk := entity.BuildTenantMetadataPK(serviceID, tenantID)
+	sk := entity.BuildTenantMetadataSK()
+
+	out, err := r.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(r.tableName),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: pk},
+			"sk": &types.AttributeValueMemberS{Value: sk},
+		},
+	})
+	if err != nil {
+		log.Printf("[WARN] DynamoDB GetTenantConfig error, fallback to memory: %v", err)
+		return r.fallback.GetTenantConfig(ctx, serviceID, tenantID)
+	}
+	if len(out.Item) == 0 {
+		return r.fallback.GetTenantConfig(ctx, serviceID, tenantID)
+	}
+
+	var cfg entity.TenantConfig
+	if err := attributevalue.UnmarshalMap(out.Item, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tenant config: %w", err)
+	}
+	return &cfg, nil
+}
+
+func (r *dynamodbQuotaRepository) SetTenantConfig(ctx context.Context, cfg *entity.TenantConfig) error {
+	cfg.PK = entity.BuildTenantMetadataPK(cfg.ServiceID, cfg.TenantID)
+	cfg.SK = entity.BuildTenantMetadataSK()
+	cfg.UpdatedAt = time.Now().UTC()
+
+	item, err := attributevalue.MarshalMap(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tenant config: %w", err)
+	}
+
+	_, err = r.client.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(r.tableName),
+		Item:      item,
+	})
+	if err != nil {
+		log.Printf("[WARN] DynamoDB SetTenantConfig error, fallback to memory: %v", err)
+		return r.fallback.SetTenantConfig(ctx, cfg)
+	}
+
+	_ = r.fallback.SetTenantConfig(ctx, cfg)
+	return nil
 }
 
 func (r *dynamodbQuotaRepository) SetTenantLimit(
@@ -457,7 +300,16 @@ func (r *dynamodbQuotaRepository) SetTenantLimit(
 	costLimit float64,
 	billingType string,
 ) error {
-	return r.SetServiceLimit(ctx, serviceID, costLimit, billingType)
+	if tenantID == "" {
+		return r.SetServiceLimit(ctx, serviceID, costLimit, billingType)
+	}
+	cfg := &entity.TenantConfig{
+		ServiceID:   serviceID,
+		TenantID:    tenantID,
+		BillingType: billingType,
+		CostLimit:   costLimit,
+	}
+	return r.SetTenantConfig(ctx, cfg)
 }
 
 func (r *dynamodbQuotaRepository) GetServiceMonthlyUsage(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error) {
@@ -669,65 +521,19 @@ func (r *dynamodbQuotaRepository) Ping(ctx context.Context) error {
 
 // --- Memory Implementation ---
 
+// NewMemoryQuotaRepository はテストやスタンドアロン環境向けの完全インメモリ QuotaRepository を生成する
+func NewMemoryQuotaRepository(defaultQuota int64) repository.QuotaRepository {
+	return newMemoryQuotaRepository(defaultQuota)
+}
+
 func newMemoryQuotaRepository(defaultQuota int64) *memoryQuotaRepository {
 	// 本番用初期化: テスト用テナントやダミーデータは一切ハードコードせず空のマップで初期化
 	return &memoryQuotaRepository{
-		apiKeys:        make(map[string]*entity.TenantContext),
-		apiKeyRecords:  make(map[string]*entity.APIKeyRecord),
 		tenantUsages:   make(map[string]*entity.TenantMonthlyUsage),
 		locks:          make(map[string]time.Time),
 		serviceConfigs: make(map[string]*entity.ServiceConfig),
+		tenantConfigs:  make(map[string]*entity.TenantConfig),
 	}
-}
-
-func (m *memoryQuotaRepository) FindTenantContextByAPIKey(ctx context.Context, apiKey string) (*entity.TenantContext, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	// 1. APIKeyRecord マップから検索
-	rec, ok := m.apiKeyRecords[apiKey]
-	if ok {
-		if !rec.IsActive || rec.IsExpired() {
-			return nil, nil // 失効済みまたは期限切れキー
-		}
-		return &entity.TenantContext{
-			ServiceID:     rec.ServiceID,
-			TenantID:      "default",
-			UserID:        "anonymous",
-			DataResidency: "global",
-			APIKey:        rec.APIKey,
-			AllowedModels: rec.AllowedModels,
-			KeyCostLimit:  rec.CostLimit,
-		}, nil
-	}
-
-	// 2. 既存の apiKeys マップから検索
-	tc, ok := m.apiKeys[apiKey]
-	if ok {
-		return &entity.TenantContext{
-			ServiceID:     tc.ServiceID,
-			TenantID:      tc.TenantID,
-			UserID:        tc.UserID,
-			DataResidency: tc.DataResidency,
-			APIKey:        tc.APIKey,
-		}, nil
-	}
-
-	// 社内キー命名規約 "sk-internal-<service>" の場合は動的にサービス識別子を解決
-	if strings.HasPrefix(apiKey, "sk-internal-") {
-		svc := strings.TrimPrefix(apiKey, "sk-internal-")
-		if svc != "" {
-			return &entity.TenantContext{
-				ServiceID:     svc,
-				TenantID:      "default",
-				UserID:        "anonymous",
-				DataResidency: "global",
-				APIKey:        apiKey,
-			}, nil
-		}
-	}
-
-	return nil, nil
 }
 
 func (m *memoryQuotaRepository) GetTenantUsage(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error) {
@@ -836,14 +642,7 @@ func (m *memoryQuotaRepository) SetServiceLimit(
 		UpdatedAt:   now,
 	}
 
-	// 2. 配下のキーメタデータ同期
-	for _, rec := range m.apiKeyRecords {
-		if rec.ServiceID == serviceID {
-			rec.CostLimit = costLimit
-			rec.BillingType = billingType
-			rec.UpdatedAt = now
-		}
-	}
+
 
 	return nil
 }
@@ -854,7 +653,43 @@ func (m *memoryQuotaRepository) SetTenantLimit(
 	costLimit float64,
 	billingType string,
 ) error {
-	return m.SetServiceLimit(ctx, serviceID, costLimit, billingType)
+	if tenantID == "" {
+		return m.SetServiceLimit(ctx, serviceID, costLimit, billingType)
+	}
+	cfg := &entity.TenantConfig{
+		ServiceID:   serviceID,
+		TenantID:    tenantID,
+		BillingType: billingType,
+		CostLimit:   costLimit,
+	}
+	return m.SetTenantConfig(ctx, cfg)
+}
+
+func (m *memoryQuotaRepository) GetTenantConfig(ctx context.Context, serviceID, tenantID string) (*entity.TenantConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	key := serviceID + ":" + tenantID
+	cfg, ok := m.tenantConfigs[key]
+	if !ok {
+		return nil, nil
+	}
+	clone := *cfg
+	return &clone, nil
+}
+
+func (m *memoryQuotaRepository) SetTenantConfig(ctx context.Context, cfg *entity.TenantConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	clone := *cfg
+	clone.PK = entity.BuildTenantMetadataPK(cfg.ServiceID, cfg.TenantID)
+	clone.SK = entity.BuildTenantMetadataSK()
+	clone.UpdatedAt = time.Now().UTC()
+	key := cfg.ServiceID + ":" + cfg.TenantID
+	m.tenantConfigs[key] = &clone
+
+	return nil
 }
 
 func (m *memoryQuotaRepository) GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error) {
@@ -879,13 +714,6 @@ func (m *memoryQuotaRepository) SetServiceConfig(ctx context.Context, cfg *entit
 	clone.UpdatedAt = time.Now().UTC()
 	m.serviceConfigs[cfg.ServiceID] = &clone
 
-	for _, rec := range m.apiKeyRecords {
-		if rec.ServiceID == cfg.ServiceID {
-			rec.CostLimit = cfg.CostLimit
-			rec.BillingType = cfg.BillingType
-			rec.UpdatedAt = clone.UpdatedAt
-		}
-	}
 	return nil
 }
 
@@ -940,60 +768,7 @@ func (m *memoryQuotaRepository) GetServiceMonthlyUsage(ctx context.Context, serv
 	return report, nil
 }
 
-func (m *memoryQuotaRepository) CreateAPIKey(ctx context.Context, record *entity.APIKeyRecord) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
-	clone := *record
-	clone.PK = entity.BuildKeyPK(record.APIKey)
-	clone.SK = "METADATA"
-	clone.IsActive = true
-	now := time.Now().UTC()
-	clone.CreatedAt = now
-	clone.UpdatedAt = now
-
-	m.apiKeyRecords[record.APIKey] = &clone
-	return nil
-}
-
-func (m *memoryQuotaRepository) GetAPIKey(ctx context.Context, apiKey string) (*entity.APIKeyRecord, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	rec, ok := m.apiKeyRecords[apiKey]
-	if !ok {
-		return nil, nil
-	}
-	clone := *rec
-	return &clone, nil
-}
-
-func (m *memoryQuotaRepository) ListAPIKeysByService(ctx context.Context, serviceID string) ([]*entity.APIKeyRecord, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var list []*entity.APIKeyRecord
-	for _, rec := range m.apiKeyRecords {
-		if serviceID == "" || rec.ServiceID == serviceID {
-			clone := *rec
-			list = append(list, &clone)
-		}
-	}
-	return list, nil
-}
-
-func (m *memoryQuotaRepository) RevokeAPIKey(ctx context.Context, apiKey string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	rec, ok := m.apiKeyRecords[apiKey]
-	if !ok {
-		return nil
-	}
-	rec.IsActive = false
-	rec.UpdatedAt = time.Now().UTC()
-	return nil
-}
 
 func (m *memoryQuotaRepository) AcquireLock(ctx context.Context, lockKey string, ttlSeconds int64) (bool, error) {
 	m.mu.Lock()
@@ -1063,4 +838,3 @@ func (m *memoryQuotaRepository) ListNotifications(ctx context.Context, limit int
 func (m *memoryQuotaRepository) Ping(ctx context.Context) error {
 	return nil
 }
-

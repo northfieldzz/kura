@@ -50,4 +50,3 @@ func NewStandardError(code int, errType, message, vendorCode string) *StandardEr
 		},
 	}
 }
-

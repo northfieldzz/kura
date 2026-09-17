@@ -4,55 +4,20 @@ import (
 	"context"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/northfieldzz/kura/internal/domain/entity"
 )
 
 type mockQuotaRepo struct {
-	findTenantFn    func(ctx context.Context, apiKey string) (*entity.TenantContext, error)
-	getTenantUsageFn func(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error)
+	getTenantUsageFn       func(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error)
 	incrementTenantUsageFn func(ctx context.Context, serviceID, tenantID, month string, model string, promptTokens, completionTokens int64, cost float64) error
-	setTenantLimitFn func(ctx context.Context, serviceID, tenantID string, costLimit float64, billingType string) error
-	setServiceLimitFn func(ctx context.Context, serviceID string, costLimit float64, billingType string) error
-	getServiceUsageFn func(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error)
-	createAPIKeyFn   func(ctx context.Context, record *entity.APIKeyRecord) error
-	getAPIKeyFn      func(ctx context.Context, apiKey string) (*entity.APIKeyRecord, error)
-	listAPIKeysFn    func(ctx context.Context, serviceID string) ([]*entity.APIKeyRecord, error)
-	revokeAPIKeyFn   func(ctx context.Context, apiKey string) error
+	setTenantLimitFn       func(ctx context.Context, serviceID, tenantID string, costLimit float64, billingType string) error
+	getTenantConfigFn      func(ctx context.Context, serviceID, tenantID string) (*entity.TenantConfig, error)
+	setTenantConfigFn      func(ctx context.Context, cfg *entity.TenantConfig) error
+	setServiceLimitFn      func(ctx context.Context, serviceID string, costLimit float64, billingType string) error
+	getServiceUsageFn      func(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error)
 }
 
-func (m *mockQuotaRepo) CreateAPIKey(ctx context.Context, record *entity.APIKeyRecord) error {
-	if m.createAPIKeyFn != nil {
-		return m.createAPIKeyFn(ctx, record)
-	}
-	return nil
-}
-func (m *mockQuotaRepo) GetAPIKey(ctx context.Context, apiKey string) (*entity.APIKeyRecord, error) {
-	if m.getAPIKeyFn != nil {
-		return m.getAPIKeyFn(ctx, apiKey)
-	}
-	return nil, nil
-}
-func (m *mockQuotaRepo) ListAPIKeysByService(ctx context.Context, serviceID string) ([]*entity.APIKeyRecord, error) {
-	if m.listAPIKeysFn != nil {
-		return m.listAPIKeysFn(ctx, serviceID)
-	}
-	return nil, nil
-}
-func (m *mockQuotaRepo) RevokeAPIKey(ctx context.Context, apiKey string) error {
-	if m.revokeAPIKeyFn != nil {
-		return m.revokeAPIKeyFn(ctx, apiKey)
-	}
-	return nil
-}
-
-func (m *mockQuotaRepo) FindTenantContextByAPIKey(ctx context.Context, apiKey string) (*entity.TenantContext, error) {
-	if m.findTenantFn != nil {
-		return m.findTenantFn(ctx, apiKey)
-	}
-	return nil, nil
-}
 func (m *mockQuotaRepo) GetTenantUsage(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error) {
 	if m.getTenantUsageFn != nil {
 		return m.getTenantUsageFn(ctx, serviceID, tenantID, month)
@@ -74,6 +39,18 @@ func (m *mockQuotaRepo) SetServiceLimit(ctx context.Context, serviceID string, c
 func (m *mockQuotaRepo) SetTenantLimit(ctx context.Context, serviceID, tenantID string, costLimit float64, billingType string) error {
 	if m.setTenantLimitFn != nil {
 		return m.setTenantLimitFn(ctx, serviceID, tenantID, costLimit, billingType)
+	}
+	return nil
+}
+func (m *mockQuotaRepo) GetTenantConfig(ctx context.Context, serviceID, tenantID string) (*entity.TenantConfig, error) {
+	if m.getTenantConfigFn != nil {
+		return m.getTenantConfigFn(ctx, serviceID, tenantID)
+	}
+	return nil, nil
+}
+func (m *mockQuotaRepo) SetTenantConfig(ctx context.Context, cfg *entity.TenantConfig) error {
+	if m.setTenantConfigFn != nil {
+		return m.setTenantConfigFn(ctx, cfg)
 	}
 	return nil
 }
@@ -107,15 +84,6 @@ func (m *mockQuotaRepo) Ping(ctx context.Context) error {
 
 func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	repo := &mockQuotaRepo{
-		findTenantFn: func(ctx context.Context, apiKey string) (*entity.TenantContext, error) {
-			if apiKey == "sk-valid-key" {
-				return &entity.TenantContext{
-					ServiceID: "ai-engine",
-					APIKey:    apiKey,
-				}, nil
-			}
-			return nil, nil
-		},
 		getTenantUsageFn: func(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error) {
 			return &entity.TenantMonthlyUsage{
 				ServiceID:   serviceID,
@@ -123,6 +91,23 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 				TotalTokens: 50000,
 				TotalCost:   1.25,
 			}, nil
+		},
+		getTenantConfigFn: func(ctx context.Context, serviceID, tenantID string) (*entity.TenantConfig, error) {
+			if tenantID == "tenant-capped" {
+				return &entity.TenantConfig{
+					ServiceID: serviceID,
+					TenantID:  tenantID,
+					CostLimit: 1.0, // テナント上限1.0ドル (利用量1.25ドルのため超過)
+				}, nil
+			}
+			if tenantID == "tenant-safe" {
+				return &entity.TenantConfig{
+					ServiceID: serviceID,
+					TenantID:  tenantID,
+					CostLimit: 5.0, // テナント上限5.0ドル (利用量1.25ドルのため安全)
+				}, nil
+			}
+			return nil, nil
 		},
 		getServiceUsageFn: func(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error) {
 			if serviceID == "service-capped" {
@@ -146,22 +131,9 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 
 	uc := NewAuthUseCase(repo)
 
-	// Case 1: Missing auth header
+	// Case 1: Valid PAYG request with X-Service-ID and headers
 	req, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
-	_, errResp := uc.AuthenticateRequest(context.Background(), req, "")
-	if errResp == nil || errResp.Err.VendorOriginalCode != "missing_api_key" {
-		t.Errorf("Expected missing_api_key error, got %v", errResp)
-	}
-
-	// Case 2: Invalid API key
-	req.Header.Set("Authorization", "Bearer sk-invalid")
-	_, errResp = uc.AuthenticateRequest(context.Background(), req, "")
-	if errResp == nil || errResp.Err.VendorOriginalCode != "invalid_api_key" {
-		t.Errorf("Expected invalid_api_key error, got %v", errResp)
-	}
-
-	// Case 3: Valid PAYG request with headers
-	req.Header.Set("Authorization", "Bearer sk-valid-key")
+	req.Header.Set("X-Service-ID", "ai-engine")
 	req.Header.Set("X-Tenant-ID", "tenant-corp-a")
 	req.Header.Set("X-User-ID", "user-123")
 	req.Header.Set("X-Data-Residency", "japan")
@@ -176,34 +148,34 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	if res.QuotaLimitTokens != "unlimited" || res.QuotaRemainingTokens != "unlimited" {
 		t.Errorf("Expected unlimited tokens, got limit=%s, rem=%s", res.QuotaLimitTokens, res.QuotaRemainingTokens)
 	}
-	if res.TenantContext.TenantID != "tenant-corp-a" || res.TenantContext.UserID != "user-123" || res.TenantContext.DataResidency != "japan" {
+	if res.TenantContext.ServiceID != "ai-engine" || res.TenantContext.TenantID != "tenant-corp-a" || res.TenantContext.UserID != "user-123" || res.TenantContext.DataResidency != "japan" {
 		t.Errorf("TenantContext fields mismatch: %+v", res.TenantContext)
 	}
 
-	// Case 4: Service-wide quota exceeded -> 429 (regardless of tenant)
-	repo.findTenantFn = func(ctx context.Context, apiKey string) (*entity.TenantContext, error) {
-		return &entity.TenantContext{
-			ServiceID: "service-capped",
-			APIKey:    apiKey,
-		}, nil
+	// Case 2: Fallback from Bearer service:tenant:user header
+	reqFallback, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	reqFallback.Header.Set("Authorization", "Bearer ai-engine:team-b:user-456")
+
+	resFallback, errResp := uc.AuthenticateRequest(context.Background(), reqFallback, "")
+	if errResp != nil {
+		t.Fatalf("Unexpected error: %v", errResp)
 	}
+	if resFallback.TenantContext.ServiceID != "ai-engine" || resFallback.TenantContext.TenantID != "team-b" || resFallback.TenantContext.UserID != "user-456" {
+		t.Errorf("TenantContext fallback mismatch: %+v", resFallback.TenantContext)
+	}
+
+	// Case 3: Service-wide quota exceeded -> 429
 	reqSvcOver, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
-	reqSvcOver.Header.Set("Authorization", "Bearer sk-valid-key")
+	reqSvcOver.Header.Set("X-Service-ID", "service-capped")
 	reqSvcOver.Header.Set("X-Tenant-ID", "any-random-tenant")
 	_, errResp = uc.AuthenticateRequest(context.Background(), reqSvcOver, "")
 	if errResp == nil || errResp.Err.VendorOriginalCode != "quota_exceeded" {
 		t.Errorf("Expected service-wide quota_exceeded error (429), got %v", errResp)
 	}
 
-	// Case 5: Metadata and Tags headers extraction
-	repo.findTenantFn = func(ctx context.Context, apiKey string) (*entity.TenantContext, error) {
-		return &entity.TenantContext{
-			ServiceID: "service-demo",
-			APIKey:    apiKey,
-		}, nil
-	}
+	// Case 4: Metadata and Tags headers extraction
 	reqMeta, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
-	reqMeta.Header.Set("Authorization", "Bearer sk-valid-key")
+	reqMeta.Header.Set("X-Service-ID", "service-demo")
 	reqMeta.Header.Set("X-Environment", "staging")
 	reqMeta.Header.Set("X-Feature", "rag-search")
 	reqMeta.Header.Set("X-Tags", "team=infra,experiment=v2,prod-candidate")
@@ -220,6 +192,27 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	}
 	if resMeta.TenantContext.Tags["team"] != "infra" || resMeta.TenantContext.Tags["experiment"] != "v2" || resMeta.TenantContext.Tags["prod-candidate"] != "true" {
 		t.Errorf("unexpected Tags parsed: %+v", resMeta.TenantContext.Tags)
+	}
+
+	// Case 5: Tenant-level quota exceeded -> 429
+	reqTenantOver, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	reqTenantOver.Header.Set("X-Service-ID", "ai-engine") // サービス全体は正常 (PAYG)
+	reqTenantOver.Header.Set("X-Tenant-ID", "tenant-capped") // テナント個別上限1.0ドルに対して消費1.25ドル
+	_, errResp = uc.AuthenticateRequest(context.Background(), reqTenantOver, "")
+	if errResp == nil || errResp.Err.VendorOriginalCode != "quota_exceeded" {
+		t.Errorf("Expected tenant-level quota_exceeded error (429), got %v", errResp)
+	}
+
+	// Case 6: Tenant-level quota within limit -> PASS
+	reqTenantSafe, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	reqTenantSafe.Header.Set("X-Service-ID", "ai-engine")
+	reqTenantSafe.Header.Set("X-Tenant-ID", "tenant-safe") // テナント個別上限5.0ドルに対して消費1.25ドル
+	resTenantSafe, errResp := uc.AuthenticateRequest(context.Background(), reqTenantSafe, "")
+	if errResp != nil {
+		t.Fatalf("Unexpected error for safe tenant: %v", errResp)
+	}
+	if resTenantSafe == nil || resTenantSafe.TenantContext.TenantID != "tenant-safe" {
+		t.Errorf("Expected successful auth for safe tenant, got: %+v", resTenantSafe)
 	}
 }
 
@@ -259,28 +252,15 @@ func TestAuthUseCase_GetKeyUsageSummary(t *testing.T) {
 				},
 			}, nil
 		},
-		getAPIKeyFn: func(ctx context.Context, apiKey string) (*entity.APIKeyRecord, error) {
-			if apiKey == "sk-key-with-rules" {
-				exp := time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC)
-				return &entity.APIKeyRecord{
-					APIKey:        apiKey,
-					ServiceID:     "service-capped",
-					AllowedModels: []string{"gpt-4o", "claude-3-5-sonnet-20241022"},
-					CostLimit:     50.0,
-					ExpiresAt:     &exp,
-				}, nil
-			}
-			return nil, nil
-		},
 	}
 
 	uc := NewAuthUseCase(repo)
 
-	// Case 1: Capped Service with Key Rules
+	// Case 1: Capped Service with AllowedModels
 	tenantCtx := &entity.TenantContext{
-		ServiceID: "service-capped",
-		TenantID:  "tenant-alpha",
-		APIKey:    "sk-key-with-rules",
+		ServiceID:     "service-capped",
+		TenantID:      "tenant-alpha",
+		AllowedModels: []string{"gpt-4o", "claude-3-5-sonnet-20241022"},
 	}
 
 	summary, err := uc.GetKeyUsageSummary(context.Background(), tenantCtx)
@@ -302,9 +282,6 @@ func TestAuthUseCase_GetKeyUsageSummary(t *testing.T) {
 	if summary.ServiceRemainingUSD != 74.5 {
 		t.Errorf("expected remaining budget 74.5, got %f", summary.ServiceRemainingUSD)
 	}
-	if summary.KeyCostLimitUSD != 50.0 {
-		t.Errorf("expected key cost limit 50.0, got %f", summary.KeyCostLimitUSD)
-	}
 	if len(summary.AllowedModels) != 2 || summary.AllowedModels[0] != "gpt-4o" {
 		t.Errorf("expected allowed models, got %v", summary.AllowedModels)
 	}
@@ -319,7 +296,6 @@ func TestAuthUseCase_GetKeyUsageSummary(t *testing.T) {
 	tenantPayg := &entity.TenantContext{
 		ServiceID: "service-payg",
 		TenantID:  "tenant-beta",
-		APIKey:    "sk-payg-key",
 	}
 	summaryPayg, err := uc.GetKeyUsageSummary(context.Background(), tenantPayg)
 	if err != nil {
@@ -334,5 +310,47 @@ func TestAuthUseCase_GetKeyUsageSummary(t *testing.T) {
 	if summaryPayg.IsQuotaExceeded {
 		t.Errorf("expected not exceeded for payg")
 	}
-}
 
+	// Case 3: Tenant with Individual Limit
+	repo.getTenantConfigFn = func(ctx context.Context, serviceID, tenantID string) (*entity.TenantConfig, error) {
+		if tenantID == "tenant-with-limit" {
+			return &entity.TenantConfig{
+				ServiceID: serviceID,
+				TenantID:  tenantID,
+				CostLimit: 20.0,
+			}, nil
+		}
+		return nil, nil
+	}
+	repo.getTenantUsageFn = func(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error) {
+		if tenantID == "tenant-with-limit" {
+			return &entity.TenantMonthlyUsage{
+				ServiceID: serviceID,
+				TenantID:  tenantID,
+				TotalCost: 5.0,
+				Models: map[string]*entity.ModelUsage{
+					"gpt-4o": {PromptTokens: 1000, CompletionTokens: 500},
+				},
+			}, nil
+		}
+		return nil, nil
+	}
+
+	tenantWithLimit := &entity.TenantContext{
+		ServiceID: "service-capped",
+		TenantID:  "tenant-with-limit",
+	}
+	summaryTenant, err := uc.GetKeyUsageSummary(context.Background(), tenantWithLimit)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if summaryTenant.TenantCostLimitUSD != 20.0 {
+		t.Errorf("expected tenant cost limit 20.0, got %f", summaryTenant.TenantCostLimitUSD)
+	}
+	if summaryTenant.TenantRemainingUSD != 15.0 {
+		t.Errorf("expected tenant remaining 15.0, got %f", summaryTenant.TenantRemainingUSD)
+	}
+	if summaryTenant.IsQuotaExceeded {
+		t.Errorf("expected not exceeded for tenant within limit")
+	}
+}

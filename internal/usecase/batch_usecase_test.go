@@ -26,7 +26,7 @@ func (m *mockNotifier) Send(ctx context.Context, title, message string, isAlert 
 }
 
 func TestBatchUseCase_MonthlyReport_Locking(t *testing.T) {
-	repo := dynamodb.NewQuotaRepository("", "", "test", 1000000)
+	repo := dynamodb.NewMemoryQuotaRepository(1000000)
 	notifier := &mockNotifier{}
 	batchUC := NewBatchUseCase(repo, notifier)
 
@@ -65,7 +65,7 @@ func TestBatchUseCase_MonthlyReport_Locking(t *testing.T) {
 }
 
 func TestBatchUseCase_QuotaAlerts_LockingAndThreshold(t *testing.T) {
-	repo := dynamodb.NewQuotaRepository("", "", "test", 1000000)
+	repo := dynamodb.NewMemoryQuotaRepository(1000000)
 	notifier := &mockNotifier{}
 	batchUC := NewBatchUseCase(repo, notifier)
 

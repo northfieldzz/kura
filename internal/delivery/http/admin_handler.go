@@ -129,90 +129,6 @@ func (h *AdminHandler) SetLimits(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// CreateKey はサービス向け API キーを新規発行する (POST /v1/admin/keys)
-func (h *AdminHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminAuth(r) {
-		WriteError(w, entity.NewStandardError(http.StatusUnauthorized, entity.ErrorTypeUnauthorized, "Invalid or missing admin API key", "admin_unauthorized"))
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		WriteError(w, entity.NewStandardError(http.StatusBadRequest, entity.ErrorTypeInvalidRequest, "Failed to read body", ""))
-		return
-	}
-	defer r.Body.Close()
-
-	var req usecase.CreateAPIKeyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		WriteError(w, entity.NewStandardError(http.StatusBadRequest, entity.ErrorTypeInvalidRequest, "Invalid JSON: "+err.Error(), ""))
-		return
-	}
-
-	record, err := h.adminUseCase.CreateAPIKey(r.Context(), &req)
-	if err != nil {
-		WriteError(w, entity.NewStandardError(http.StatusBadRequest, entity.ErrorTypeInvalidRequest, err.Error(), ""))
-		return
-	}
-
-	WriteJSON(w, http.StatusCreated, record)
-}
-
-// ListKeys はサービスに紐づく API キー一覧を取得する (GET /v1/admin/keys)
-func (h *AdminHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminAuth(r) {
-		WriteError(w, entity.NewStandardError(http.StatusUnauthorized, entity.ErrorTypeUnauthorized, "Invalid or missing admin API key", "admin_unauthorized"))
-		return
-	}
-
-	serviceID := r.URL.Query().Get("service_id")
-	keys, err := h.adminUseCase.ListAPIKeys(r.Context(), serviceID)
-	if err != nil {
-		WriteError(w, entity.NewStandardError(http.StatusBadRequest, entity.ErrorTypeInvalidRequest, err.Error(), ""))
-		return
-	}
-
-	WriteJSON(w, http.StatusOK, map[string]any{
-		"service_id": serviceID,
-		"keys":       keys,
-	})
-}
-
-// RevokeKey は指定の API キーを失効・無効化する (DELETE /v1/admin/keys)
-func (h *AdminHandler) RevokeKey(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminAuth(r) {
-		WriteError(w, entity.NewStandardError(http.StatusUnauthorized, entity.ErrorTypeUnauthorized, "Invalid or missing admin API key", "admin_unauthorized"))
-		return
-	}
-
-	apiKey := r.URL.Query().Get("api_key")
-	if apiKey == "" {
-		// リクエストボディからのフォールバック
-		var bodyReq struct {
-			APIKey string `json:"api_key"`
-		}
-		if body, err := io.ReadAll(r.Body); err == nil && len(body) > 0 {
-			_ = json.Unmarshal(body, &bodyReq)
-			apiKey = bodyReq.APIKey
-		}
-	}
-
-	if apiKey == "" {
-		WriteError(w, entity.NewStandardError(http.StatusBadRequest, entity.ErrorTypeInvalidRequest, "api_key parameter is required", ""))
-		return
-	}
-
-	if err := h.adminUseCase.RevokeAPIKey(r.Context(), apiKey); err != nil {
-		WriteError(w, entity.NewStandardError(http.StatusBadRequest, entity.ErrorTypeInvalidRequest, err.Error(), ""))
-		return
-	}
-
-	WriteJSON(w, http.StatusOK, map[string]string{
-		"status":  "ok",
-		"message": "API key revoked successfully",
-	})
-}
-
 // ListNotifications は保存されたアプリ内通知一覧を取得する (GET /v1/admin/notifications)
 func (h *AdminHandler) ListNotifications(w http.ResponseWriter, r *http.Request) {
 	if !h.verifyAdminAuth(r) {
@@ -237,4 +153,3 @@ func (h *AdminHandler) ListNotifications(w http.ResponseWriter, r *http.Request)
 		"notifications": notifications,
 	})
 }
-

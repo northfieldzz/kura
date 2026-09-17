@@ -22,13 +22,13 @@ Standard Go Project Layout をベースにしたレイヤードアーキテク�
 ### 🎯 本プロジェクトが提供する価値（コア思想）
 
 - **必要最小限に絞り込んだフォーカス設計**:
-  あらゆるモデルを網羅するのではなく、本番運用に真に必要なコア機能（OpenAI 互換中継、コストガード、バーチャルキー、構造化ログ）に特化。コードベース全体を見通し良く保ち、誰でも内部ロジックを完全に把握・拡張できる高い保守性を実現。
+  あらゆるモデルを網羅するのではなく、本番運用に真に必要なコア機能（OpenAI 互換中継、コストガード、構造化ログ）に特化。API キー管理・認証は前段の API ゲートウェイ（tollgate）に委譲し、コードベース全体を見通し良く保ち、誰でも内部ロジックを完全に把握・拡張できる高い保守性を実現。
 - **超軽量・極低レイテンシー (Go × Alpine)**:
   CGO なしの Go 実装。数MBの Alpine コンテナで瞬時に起動し、最小の CPU/メモリ使用量とほぼゼロに近いプロキシオーバーヘッドを実現。
 - **OpenAI 互換規格によるインターフェース統一**:
   クライアントは使い慣れた単一エンドポイント (`/v1/chat/completions`) を叩くだけ。仮想モデルエイリアス (`fast`, `smart`, `flash`) により、アプリ側のコード変更なしで裏側のモデルを柔軟に切り替え。
-- **確実なコストガード & バーチャルキー管理**:
-  Amazon DynamoDB（Single Table Design）によるミリ秒単位のリアルタイム集計。予算上限到達時の即時自動遮断 (`429 Too Many Requests`)、許可モデル制限付きバーチャルキー発行、動的レートリミット（RPM制御）。
+- **確実なコストガード & マルチテナント制御**:
+  Amazon DynamoDB（Single Table Design）によるミリ秒単位のリアルタイム集計。予算上限到達時の即時自動遮断 (`429 Too Many Requests`)、動的レートリミット（RPM制御）。
 - **完全自律型運用（外部バッチ不要）**:
   EventBridge や Lambda を必要とせず、プロセス内 Goroutine と DynamoDB 分散ロックにより月次締めレポート集計・アラート通知を完結。
 
@@ -36,9 +36,9 @@ Standard Go Project Layout をベースにしたレイヤードアーキテク�
 
 ## 主な機能
 - **OpenAI 互換エンドポイント (`/v1/chat/completions`)**: 単一のインターフェースで全ベンダーにアクセス。
-- **バーチャルキー管理**: キーごとの許可モデル制限（`allowed_models`、ワイルドカード対応）、有効期限（`expires_at`）、コスト上限設定。
+- **tollgate 連携 & マルチテナント解決**: API キー管理を tollgate に集約し、`X-Service-ID` 等のヘッダーにより透過的にテナントコンテキスト・予算を解決。
 - **仮想モデルエイリアス (Routing & Fallback)**: `fast` / `default` (`gpt-5.4-mini`), `smart` / `code` (`claude-3-5-sonnet`), `flash` (`gemini-1.5-flash`) などの共通エイリアス解決。
-- **動的レートリミット（RPM制御）**: テナント/キー単位のオンデマンドな分間リクエスト制御（ノイジーネイバー防止）。超過時は即座に 429 Too Many Requests を返却。
+- **動的レートリミット（RPM制御）**: テナント/サービス単位のオンデマンドな分間リクエスト制御（ノイジーネイバー防止）。超過時は即座に 429 Too Many Requests を返却。
 - **透過メタデータ・タグ収集**: `X-Environment`, `X-Feature`, `X-Tags` ヘッダーから事前マスタなしで透過的に収集・利用ログへ付与。
 - **SSE ストリーミング制御**: バッファリング完全無効化、最終フレームでの正確なトークン計測。
 - **未知パラメータのパススルー (FR-06)**: 各ベンダーの新機能パラメータ（`thinking` 等）をそのまま透過。
@@ -57,13 +57,14 @@ kura/
 │   └── mock_server/                # Microsoft Foundry & AI Studio 統合モックサーバー
 ├── internal/
 │   ├── domain/                     # ドメイン層（エンティティ・インターフェース）
-│   │   ├── entity/                 # Chat, Tenant, APIKey, Pricing, Error, Usage 等
+│   │   ├── entity/                 # Chat, Tenant, Pricing, Error, Usage 等
 │   │   ├── repository/             # QuotaRepository インターフェース
 │   │   └── service/                # Adapter, UsageLogger, RateLimiter インターフェース
 │   ├── usecase/                    # ユースケース層（業務ロジック）
-│   │   ├── auth_usecase.go         # キー認証・タグ抽出・クォータ上限判定 (429)
+│   │   ├── auth_usecase.go         # テナント解決・タグ抽出・クォータ上限判定 (429)
 │   │   ├── chat_usecase.go         # 仮想モデル名解決・モデルアクセス認可 (403)
-│   │   └── admin_usecase.go        # 管理用 API・キー発行・クォータ設定
+│   │   └── admin_usecase.go        # 管理用 API・クォータ設定
+
 │   ├── infrastructure/             # インフラ層（外部連携・具象実装）
 │   │   ├── adapter/                # OpenAI / Microsoft Foundry アダプター
 │   │   ├── config/                 # 環境変数ローダー
@@ -181,14 +182,13 @@ curl -X POST http://localhost:8080/api/v1/llm/internal/keys \
 
 ## CI / CD (GitHub Actions)
 
-`.github/workflows/docker-publish.yml` により、以下のトリガーで Docker Hub への自動ビルド・Push が行われます。
+`.github/workflows/docker-publish.yml` により、以下のトリガーで **GitHub Container Registry (`ghcr.io`)** への自動ビルド・Push が行われます。
 
 - **トリガー**:
-  - セマンティックバージョニングタグ（例: `v1.0.0`）の Push、または手動実行 (workflow_dispatch)
+  - セマンティックバージョニングタグ（例: `v1.0.0`）の Push、または手動実行 (`workflow_dispatch`)
+- **パブリッシュ先**: `ghcr.io/<owner>/kura:<tag>`
 - **マルチアーキテクチャ対応**: `linux/amd64`, `linux/arm64`
-- **必要な GitHub リポジトリ Secrets**:
-  - `DOCKERHUB_USERNAME`: Docker Hub のユーザー名
-  - `DOCKERHUB_TOKEN`: Docker Hub のアクセストークン (Personal Access Token)
+- **認証**: リポジトリ標準の `GITHUB_TOKEN`（`packages: write` 権限）を使用するため、個別の外部 Secret 登録は不要。
 
 ---
 

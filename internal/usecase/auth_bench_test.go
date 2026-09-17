@@ -32,12 +32,6 @@ func BenchmarkParseTagsHeader_Empty(b *testing.B) {
 
 func BenchmarkAuthenticateRequest(b *testing.B) {
 	repo := &mockQuotaRepo{
-		findTenantFn: func(ctx context.Context, apiKey string) (*entity.TenantContext, error) {
-			return &entity.TenantContext{
-				ServiceID: "payment-service",
-				APIKey:    apiKey,
-			}, nil
-		},
 		getServiceUsageFn: func(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error) {
 			return &entity.ServiceMonthlyReport{
 				ServiceID:    serviceID,
@@ -51,7 +45,7 @@ func BenchmarkAuthenticateRequest(b *testing.B) {
 	uc := NewAuthUseCase(repo)
 
 	req, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
-	req.Header.Set("Authorization", "Bearer sk-test-benchmark-key")
+	req.Header.Set("X-Service-ID", "payment-service")
 	req.Header.Set("X-Tenant-ID", "tenant-corp-a")
 	req.Header.Set("X-User-ID", "user-bench-01")
 	req.Header.Set("X-Data-Residency", "japan")

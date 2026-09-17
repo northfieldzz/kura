@@ -20,8 +20,8 @@ OpenAI 互換のインターフェースを提供し、Microsoft Foundry (旧 Az
                                       |
                                       v
        +-------------------------------------------------------------+
-       |                         Kura                         |
-       |  - バーチャルキー認証 & モデル認可 (403 Forbidden)          |
+       |                         Kura                                |
+       |  - テナント解決 (tollgate 連携) & モデル認可 (403 Forbidden)|
        |  - 仮想モデルエイリアス解決 (fast, smart, flash)            |
        |  - 動的レートリミット (RPM 制御: 429 Too Many Requests)     |
        |  - 予算・クォータガード (PayG / Capped)                     |
@@ -42,7 +42,7 @@ OpenAI 互換のインターフェースを提供し、Microsoft Foundry (旧 Az
                                      v
                        +---------------------------+
                        |      Amazon DynamoDB      |
-                       |   Table: KuraUsage  |
+                       |   Table: KuraUsage        |
                        +---------------------------+
 ```
 
@@ -59,13 +59,13 @@ kura/
 │   └── mock_server/                # Microsoft Foundry & AI Studio 統合モックサーバー
 ├── internal/
 │   ├── domain/                     # 【ドメイン層】外部依存を持たない純粋な業務ルール・モデル
-│   │   ├── entity/                 # Chat, Tenant, APIKey, Pricing, Usage, Error
+│   │   ├── entity/                 # Chat, Tenant, Pricing, Usage, Error
 │   │   ├── repository/             # QuotaRepository インターフェース
 │   │   └── service/                # Adapter, UsageLogger, RateLimiter インターフェース
 │   ├── usecase/                    # 【ユースケース層】ドメインを組み合わせた業務シナリオ
-│   │   ├── auth_usecase.go         # キー認証・タグ抽出・クォータ上限判定
+│   │   ├── auth_usecase.go         # テナント認証/解決・タグ抽出・クォータ上限判定
 │   │   ├── chat_usecase.go         # 仮想モデル名解決・モデルアクセス認可
-│   │   ├── admin_usecase.go        # 管理用 API・キー発行・クォータ設定
+│   │   ├── admin_usecase.go        # 管理用 API・クォータ設定/利用量取得
 │   │   └── batch_usecase.go        # 月次締めレポート・残量低下アラート
 │   ├── infrastructure/             # 【インフラ層】外部技術・フレームワークの具象実装
 │   │   ├── adapter/                # Microsoft Foundry (OpenAI 互換) アダプター

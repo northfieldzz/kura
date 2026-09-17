@@ -39,8 +39,8 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
 
 | パス | メソッド | 認証 | 概要 |
 |---|:---:|:---:|---|
-| `/v1/usage` | `GET` | Bearer キー | サービス/キー別月次使用量・リアルタイム残枠確認 |
-| `/api/v1/llm/usage` | `GET` | Bearer キー | 同上 (Scalar / OpenAPI 公開用ルート) |
+| `/v1/usage` | `GET` | X-Service-ID または Bearer | サービス別月次使用量・リアルタイム残枠確認 |
+| `/api/v1/llm/usage` | `GET` | X-Service-ID または Bearer | 同上 (Scalar / OpenAPI 公開用ルート) |
 
 **レスポンス例 (`200 OK`)**:
 ```json
@@ -52,28 +52,36 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
   "service_cost_limit_usd": 100.0,
   "service_total_cost_usd": 25.5,
   "service_remaining_cost_usd": 74.5,
-  "key_cost_limit_usd": 50.0,
+  "tenant_cost_limit_usd": 50.0,
+  "tenant_remaining_cost_usd": 24.5,
   "total_tokens": 150000,
   "prompt_tokens": 100000,
   "completion_tokens": 50000,
   "allowed_models": ["gpt-4o", "claude-3-5-sonnet-20241022"],
-  "expires_at": "2026-12-31T23:59:59Z",
   "is_quota_exceeded": false
 }
 ```
 > [!NOTE]
-> `billing_type` が `pay_as_you_go` の場合、予算上限なしのため `service_remaining_cost_usd` は `-1` が返却される。
+> `billing_type` が `pay_as_you_go` の場合、予算上限なしのため `service_remaining_cost_usd` は `-1` が返却される。テナント個別上限が未設定の場合は `tenant_cost_limit_usd` は `0`、`tenant_remaining_cost_usd` は `-1` となる。
 
 ### 2.4 管理用 API (Internal)
 マスター API キー（`X-Admin-API-Key` または `Authorization: Bearer <ADMIN_API_KEY>`）による認証が必要。
 
 | パス | メソッド | 概要 |
 |---|:---:|---|
-| `/api/v1/llm/internal/keys` | `POST` | バーチャル API キーの新規発行 (許可モデル・有効期限付き) |
-| `/api/v1/llm/internal/keys` | `GET` | サービス識別子による発行済み API キー一覧取得 |
-| `/api/v1/llm/internal/keys` | `DELETE` | 指定 API キーの即時無効化・失効 |
-| `/api/v1/llm/internal/limits` | `POST` | サービスの月次コスト上限 (`cost_limit`) & プラン (`capped` / `pay_as_you_go`) 設定 |
+| `/api/v1/llm/internal/limits` | `POST` | サービス全体またはテナント個別の月次コスト上限 (`cost_limit`) & プラン設定 |
 | `/api/v1/llm/internal/usage` | `GET` | サービス別月次トークン消費量・概算コスト・モデル別内訳レポート取得 |
 | `/api/v1/llm/internal/jobs/run` | `POST` | 定期バッチジョブ (`monthly_report`, `quota_alerts`) の手動即時実行 |
 | `/api/v1/llm/internal/notifications` | `GET` | Gateway 内部に蓄積された通知・アラート一覧取得 |
+
+#### `/api/v1/llm/internal/limits` リクエスト例:
+```json
+{
+  "service_id": "payment-service",
+  "tenant_id": "tenant-corp-a",
+  "cost_limit": 50.0,
+  "billing_type": "capped"
+}
+```
+※ `tenant_id` を省略した場合はサービス全体の上限が設定され、指定した場合は該当テナント個別の上限が設定される。
 

@@ -17,9 +17,7 @@ type mockQuotaRepoForHealth struct {
 	pingErr error
 }
 
-func (m *mockQuotaRepoForHealth) FindTenantContextByAPIKey(ctx context.Context, apiKey string) (*entity.TenantContext, error) {
-	return nil, nil
-}
+
 func (m *mockQuotaRepoForHealth) GetTenantUsage(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error) {
 	return nil, nil
 }
@@ -32,6 +30,12 @@ func (m *mockQuotaRepoForHealth) SetServiceLimit(ctx context.Context, serviceID 
 func (m *mockQuotaRepoForHealth) SetTenantLimit(ctx context.Context, serviceID, tenantID string, costLimit float64, billingType string) error {
 	return nil
 }
+func (m *mockQuotaRepoForHealth) GetTenantConfig(ctx context.Context, serviceID, tenantID string) (*entity.TenantConfig, error) {
+	return nil, nil
+}
+func (m *mockQuotaRepoForHealth) SetTenantConfig(ctx context.Context, cfg *entity.TenantConfig) error {
+	return nil
+}
 func (m *mockQuotaRepoForHealth) GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error) {
 	return nil, nil
 }
@@ -40,18 +44,6 @@ func (m *mockQuotaRepoForHealth) SetServiceConfig(ctx context.Context, cfg *enti
 }
 func (m *mockQuotaRepoForHealth) GetServiceMonthlyUsage(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error) {
 	return nil, nil
-}
-func (m *mockQuotaRepoForHealth) CreateAPIKey(ctx context.Context, record *entity.APIKeyRecord) error {
-	return nil
-}
-func (m *mockQuotaRepoForHealth) GetAPIKey(ctx context.Context, apiKey string) (*entity.APIKeyRecord, error) {
-	return nil, nil
-}
-func (m *mockQuotaRepoForHealth) ListAPIKeysByService(ctx context.Context, serviceID string) ([]*entity.APIKeyRecord, error) {
-	return nil, nil
-}
-func (m *mockQuotaRepoForHealth) RevokeAPIKey(ctx context.Context, apiKey string) error {
-	return nil
 }
 func (m *mockQuotaRepoForHealth) AcquireLock(ctx context.Context, lockKey string, ttlSeconds int64) (bool, error) {
 	return true, nil
@@ -201,7 +193,6 @@ func TestGetKeyUsage(t *testing.T) {
 	tenantCtx := &entity.TenantContext{
 		ServiceID: "service-demo",
 		TenantID:  "tenant-alpha",
-		APIKey:    "sk-test",
 	}
 	reqAuth = reqAuth.WithContext(context.WithValue(reqAuth.Context(), delivery.TenantContextKey, tenantCtx))
 	recAuth := httptest.NewRecorder()
@@ -219,4 +210,3 @@ func TestGetKeyUsage(t *testing.T) {
 		t.Errorf("unexpected response content: %+v", res)
 	}
 }
-

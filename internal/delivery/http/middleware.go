@@ -23,7 +23,7 @@ const (
 	RequestIDContextKey contextKey = "request_id"
 )
 
-// AuthMiddleware は API キー認証、マルチテナント解決およびクォータ検証を行う HTTP ミドルウェア
+// AuthMiddleware はマルチテナント解決およびクォータ検証を行う HTTP ミドルウェア
 type AuthMiddleware struct {
 	authUseCase usecase.AuthUseCase
 }
@@ -124,13 +124,11 @@ func (m *RateLimitMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// レート制限キーの特定: 優先度 1: TenantID, 2: APIKey, 3: RemoteIP
+		// レート制限キーの特定: 優先度 1: TenantID, 2: ServiceID, 3: RemoteIP
 		limitKey := "default"
 		if tc := GetTenantContextFromContext(r.Context()); tc != nil {
 			if tc.TenantID != "" && tc.TenantID != "default" {
 				limitKey = "tenant:" + tc.TenantID
-			} else if tc.APIKey != "" {
-				limitKey = "key:" + tc.APIKey
 			} else if tc.ServiceID != "" {
 				limitKey = "svc:" + tc.ServiceID
 			}

@@ -111,50 +111,7 @@ type AdminLimitsOutput struct {
 	}
 }
 
-// AdminCreateKeyInput は管理者向け API キー発行入力型
-type AdminCreateKeyInput struct {
-	AdminKey       string                      `header:"X-Admin-API-Key" doc:"管理者用マスター API キー (または Authorization: Bearer)" example:"sk-admin-master-key"`
-	Authorization  string                      `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
-	InternalSecret string                      `header:"X-Internal-Secret" doc:"内部サービス専用シークレット"`
-	Body           usecase.CreateAPIKeyRequest `doc:"API キー発行リクエストペイロード"`
-}
 
-// AdminCreateKeyOutput は管理者向け API キー発行出力型
-type AdminCreateKeyOutput struct {
-	Body entity.APIKeyRecord `doc:"発行された API キーレコード"`
-}
-
-// AdminListKeysInput は管理者向け API キー一覧取得入力型
-type AdminListKeysInput struct {
-	AdminKey       string `header:"X-Admin-API-Key" doc:"管理者用マスター API キー (または Authorization: Bearer)" example:"sk-admin-master-key"`
-	Authorization  string `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
-	InternalSecret string `header:"X-Internal-Secret" doc:"内部サービス専用シークレット"`
-	ServiceID      string `query:"service_id" doc:"集計対象のサービス識別子（未指定時は全件取得）" example:"demo-service"`
-}
-
-// AdminListKeysOutput は管理者向け API キー一覧取得出力型
-type AdminListKeysOutput struct {
-	Body struct {
-		ServiceID string                 `json:"service_id"`
-		Keys      []*entity.APIKeyRecord `json:"keys"`
-	}
-}
-
-// AdminRevokeKeyInput は管理者向け API キー失効入力型
-type AdminRevokeKeyInput struct {
-	AdminKey       string `header:"X-Admin-API-Key" doc:"管理者用マスター API キー (または Authorization: Bearer)" example:"sk-admin-master-key"`
-	Authorization  string `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
-	InternalSecret string `header:"X-Internal-Secret" doc:"内部サービス専用シークレット"`
-	APIKey         string `query:"api_key" doc:"失効対象の API キー" required:"true" example:"gw-live-xxxxxx"`
-}
-
-// AdminRevokeKeyOutput は管理者向け API キー失効出力型
-type AdminRevokeKeyOutput struct {
-	Body struct {
-		Status  string `json:"status" example:"ok" doc:"実行ステータス"`
-		Message string `json:"message" example:"API key revoked successfully" doc:"処理結果メッセージ"`
-	}
-}
 
 // AdminRunJobInput はバッチジョブ手動実行入力型
 type AdminRunJobInput struct {
@@ -237,7 +194,7 @@ func SetupHumaAPI(
 		"TenantAuth": {
 			Type:        "http",
 			Scheme:      "bearer",
-			Description: "API キー認証。フォーマット: 3階層キー `service:tenant:user` またはテナント単一キー",
+			Description: "テナント認証。ヘッダー `X-Service-ID`、`X-Tenant-ID`、または Bearer トークン",
 		},
 		"AdminAuth": {
 			Type:        "apiKey",
@@ -356,8 +313,8 @@ func SetupHumaAPI(
 		OperationID: "get-key-usage-summary",
 		Method:      http.MethodGet,
 		Path:        "/api/v1/llm/usage",
-		Summary:     "キー別使用量・リアルタイム残枠確認",
-		Description: "自身のバーチャルキーに紐付く当月のトークン消費量、利用コスト、残り予算枠、許可モデル、有効期限をリアルタイムに照会する。",
+		Summary:     "当月使用量・リアルタイム残枠確認",
+		Description: "サービスまたはテナントに紐付く当月のトークン消費量、利用コスト、残り予算枠をリアルタイムに照会する。",
 		Tags:        []string{"サービス向け API"},
 		Security: []map[string][]string{
 			{"TenantAuth": {}},
@@ -415,78 +372,6 @@ func SetupHumaAPI(
 		out := &AdminLimitsOutput{}
 		out.Body.Status = "ok"
 		out.Body.Message = "Tenant limit updated successfully"
-		return out, nil
-	})
-
-	// 6. POST /api/v1/llm/internal/keys
-	huma.Register(api, huma.Operation{
-		OperationID:   "create-internal-key",
-		Method:        http.MethodPost,
-		Path:          "/api/v1/llm/internal/keys",
-		Summary:       "サービス向け API キーの発行",
-		Description:   "指定サービスに紐づくセキュアな API キー (gw-live-xxxxxx) を新規生成し、DynamoDB に永続化する。",
-		DefaultStatus: http.StatusCreated,
-		Tags:          []string{"内部サービス専用 API (Internal)"},
-		Security: []map[string][]string{
-			{"AdminAuth": {}},
-		},
-	}, func(ctx context.Context, input *AdminCreateKeyInput) (*AdminCreateKeyOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret) {
-			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
-		}
-		rec, err := adminHandler.UseCase().CreateAPIKey(ctx, &input.Body)
-		if err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		return &AdminCreateKeyOutput{Body: *rec}, nil
-	})
-
-	// 7. GET /api/v1/llm/internal/keys
-	huma.Register(api, huma.Operation{
-		OperationID: "list-internal-keys",
-		Method:      http.MethodGet,
-		Path:        "/api/v1/llm/internal/keys",
-		Summary:     "サービス別 API キー一覧の取得",
-		Description: "指定サービスに発行された API キーの一覧と有効状態を取得する。",
-		Tags:        []string{"内部サービス専用 API (Internal)"},
-		Security: []map[string][]string{
-			{"AdminAuth": {}},
-		},
-	}, func(ctx context.Context, input *AdminListKeysInput) (*AdminListKeysOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret) {
-			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
-		}
-		keys, err := adminHandler.UseCase().ListAPIKeys(ctx, input.ServiceID)
-		if err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		out := &AdminListKeysOutput{}
-		out.Body.ServiceID = input.ServiceID
-		out.Body.Keys = keys
-		return out, nil
-	})
-
-	// 8. DELETE /api/v1/llm/internal/keys
-	huma.Register(api, huma.Operation{
-		OperationID: "revoke-internal-key",
-		Method:      http.MethodDelete,
-		Path:        "/api/v1/llm/internal/keys",
-		Summary:     "API キーの失効・無効化",
-		Description: "指定された API キーを即時無効化 (is_active = false) し、Gateway へのアクセスを遮断する。",
-		Tags:        []string{"内部サービス専用 API (Internal)"},
-		Security: []map[string][]string{
-			{"AdminAuth": {}},
-		},
-	}, func(ctx context.Context, input *AdminRevokeKeyInput) (*AdminRevokeKeyOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret) {
-			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
-		}
-		if err := adminHandler.UseCase().RevokeAPIKey(ctx, input.APIKey); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		out := &AdminRevokeKeyOutput{}
-		out.Body.Status = "ok"
-		out.Body.Message = "API key revoked successfully"
 		return out, nil
 	})
 
