@@ -82,8 +82,8 @@ llm_gateway/
 ├── docs/                           # システム仕様書群 (細分化ドキュメント)
 ├── Dockerfile                      # Gateway 本体マルチステージビルド (Alpine)
 ├── Dockerfile.mock                 # モックサーバー用マルチステージビルド
-├── compose.yaml                    # ローカル検証用 (Gateway + Nginx + Mock + DynamoDB)
-├── nginx.conf                      # Nginx リバースプロキシ設定 (WebSocket/SSEバッファリング無効化)
+├── compose.yaml                    # ローカル検証用 (Gateway + Nginx[ELBシミュレータ] + Mock + DynamoDB)
+├── nginx.conf                      # ローカル用 AWS ELB (ALB) シミュレータ設定 (WebSocket/SSE対応)
 └── go.mod
 ```
 
@@ -112,10 +112,10 @@ go run ./cmd/server
 
 ### 2. Docker / nerdctl での起動 (推奨)
 ```bash
-# 全体 (Gateway + Nginx + Mock + DynamoDB) 起動
+# 全体 (Gateway + Nginx[ローカルELB] + Mock + DynamoDB) 起動
 nerdctl compose up -d --build
 ```
-- **Gateway (Nginx 経由)**: `http://localhost:8088`
+- **Gateway (Nginx / ローカル ELB 経由)**: `http://localhost:8088`
 - **Scalar API ドキュメント (Go サンプル付き)**: `http://localhost:8088/api/v1/llm/docs`
 - **OpenAPI 3.1 仕様書**: `http://localhost:8088/api/v1/llm/openapi.json`
 - **統合 LLM モックサーバー**: `http://localhost:8090`

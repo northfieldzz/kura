@@ -4,6 +4,7 @@
 
 本システムは、マルチテナント環境における大規模言語モデル（LLM）へのアクセスを一元管理・中継する超軽量・高パフォーマンスな API ゲートウェイである。
 OpenAI 互換のインターフェースを提供し、Microsoft Foundry (旧 Azure AI Foundry / OpenAI) や Google Gemini 等のマルチプロバイダーへ低遅延でルーティングする。
+本番インフラでは前段に **AWS ALB (Application Load Balancer / ELB)** が配置され、ローカル開発環境（Docker Compose）では **Nginx** を用いてこの ELB のルーティングやバッファリング制御をシミュレートする。
 
 ```
                        +-----------------------------+
@@ -13,8 +14,8 @@ OpenAI 互換のインターフェースを提供し、Microsoft Foundry (旧 Az
                                       | HTTP / WebSocket
                                       v
                        +-----------------------------+
-                       |      Nginx Reverse Proxy    |
-                       |  (CORS / Buffering Bypass)  |
+                       |        AWS ALB (ELB)        |
+                       |  (Local: Nginx Simulation)  |
                        +-----------------------------+
                                       |
                                       v

@@ -2,7 +2,7 @@ include:
   - path: dynamodb.compose.yaml
 
 services:
-  # ─── Nginx Reverse Proxy (Routing & SSE/WebSocket support) ──────────
+  # ─── Nginx (AWS ELB / ALB Simulation in Local Environment) ──────────
   nginx:
     image: nginx:alpine
     restart: unless-stopped
