@@ -182,8 +182,12 @@ func (u *authUseCase) AuthenticateRequest(
 
 // parseTagsHeader はカンマ区切りのタグヘッダー（例: "env=prod,team=alpha,experiment"）を map に変換する
 func parseTagsHeader(header string) map[string]string {
-	tags := make(map[string]string)
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return nil
+	}
 	parts := strings.Split(header, ",")
+	tags := make(map[string]string, len(parts))
 	for _, p := range parts {
 		trimmed := strings.TrimSpace(p)
 		if trimmed == "" {

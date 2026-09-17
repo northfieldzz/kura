@@ -128,18 +128,25 @@ func (a *openAIAdapter) ExtractUsageFromResponse(body []byte) (*entity.UsageInfo
 	return resp.Usage, nil
 }
 
+var usageBytes = []byte(`"usage"`)
+
 func (a *openAIAdapter) ExtractUsageFromChunk(chunk []byte) (*entity.UsageInfo, error) {
-	line := strings.TrimSpace(string(chunk))
-	if !strings.HasPrefix(line, "data:") {
+	// usage を含まない大半のストリーミングチャンク（99%以上）をゼロアロケーションで即座にスキップ
+	if !bytes.Contains(chunk, usageBytes) {
 		return nil, nil
 	}
-	data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-	if data == "[DONE]" || data == "" {
+
+	trimmed := bytes.TrimSpace(chunk)
+	if !bytes.HasPrefix(trimmed, []byte("data:")) {
+		return nil, nil
+	}
+	data := bytes.TrimSpace(bytes.TrimPrefix(trimmed, []byte("data:")))
+	if bytes.Equal(data, []byte("[DONE]")) || len(data) == 0 {
 		return nil, nil
 	}
 
 	var streamChunk entity.ChatCompletionChunk
-	if err := json.Unmarshal([]byte(data), &streamChunk); err != nil {
+	if err := json.Unmarshal(data, &streamChunk); err != nil {
 		return nil, nil
 	}
 	return streamChunk.Usage, nil
