@@ -140,8 +140,7 @@ curl -X POST http://localhost:8080/api/v1/llm/internal/keys \
 `.github/workflows/docker-publish.yml` により、以下のトリガーで Docker Hub への自動ビルド・Push が行われます。
 
 - **トリガー**:
-  - `main`ブランチへの Push
-  - セマンティックバージョニングタグ（例: `v1.0.0`）の Push
+  - セマンティックバージョニングタグ（例: `v1.0.0`）の Push、または手動実行 (workflow_dispatch)
 - **マルチアーキテクチャ対応**: `linux/amd64`, `linux/arm64`
 - **必要な GitHub リポジトリ Secrets**:
   - `DOCKERHUB_USERNAME`: Docker Hub のユーザー名
