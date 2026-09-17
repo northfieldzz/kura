@@ -12,8 +12,14 @@ OpenAI 互換のインターフェースを提供し、Microsoft Foundry (旧 Az
                                       |
                                       | HTTP / WebSocket
                                       v
+                       +-----------------------------+
+                       |      Nginx Reverse Proxy    |
+                       |  (CORS / Buffering Bypass)  |
+                       +-----------------------------+
+                                      |
+                                      v
        +-------------------------------------------------------------+
-       |                      LLM API Gateway                        |
+       |                         LLM Gateway                         |
        |  - バーチャルキー認証 & モデル認可 (403 Forbidden)          |
        |  - 仮想モデルエイリアス解決 (fast, smart, flash)            |
        |  - 動的レートリミット (RPM 制御: 429 Too Many Requests)     |

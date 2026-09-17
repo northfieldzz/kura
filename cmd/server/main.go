@@ -25,7 +25,7 @@ import (
 func main() {
 	// 1. 設定のロード
 	cfg := config.Load()
-	log.Printf("[INFO] Starting LLM API Gateway on port %s (Region: %s)", cfg.Port, cfg.AWSRegion)
+	log.Printf("[INFO] Starting LLM Gateway on port %s (Region: %s)", cfg.Port, cfg.AWSRegion)
 
 	// 2. インフラ層の初期化
 	// 非同期構造化ロガー (CloudWatch Logs 向け)
@@ -114,5 +114,5 @@ func main() {
 		log.Printf("[ERROR] Error closing usage logger: %v", err)
 	}
 
-	log.Println("[INFO] LLM API Gateway exited successfully.")
+	log.Println("[INFO] LLM Gateway exited successfully.")
 }

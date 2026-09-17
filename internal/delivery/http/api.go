@@ -205,7 +205,7 @@ func SetupHumaAPI(
 	adminHandler *AdminHandler,
 	rateLimitMiddleware ...*RateLimitMiddleware,
 ) huma.API {
-	config := huma.DefaultConfig("LLM API Gateway", "2.0.0")
+	config := huma.DefaultConfig("LLM Gateway", "2.0.0")
 	config.DocsRenderer = huma.DocsRendererScalar
 	config.DocsPath = "/api/v1/llm/docs"
 	config.OpenAPIPath = "/api/v1/llm/openapi"

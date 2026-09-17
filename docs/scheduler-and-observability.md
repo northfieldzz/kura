@@ -1,7 +1,7 @@
 # スケジューラー & オブザーバビリティ仕様書
 
 ## 1. 概要
-LLM API Gateway は、外部の AWS EventBridge や AWS Lambda を必要とせず、Go サーバープロセス内（Goroutine）で自律的に動作する内蔵バッチスケジューラー（`CronScheduler`）を備えている。
+LLM Gateway は、外部の AWS EventBridge や AWS Lambda を必要とせず、Go サーバープロセス内（Goroutine）で自律的に動作する内蔵バッチスケジューラー（`CronScheduler`）を備えている。
 また、メインのリクエスト処理を一切ブロックしない非同期構造化ロガーにより、CloudWatch Logs や Firehose への低遅延なログ転送を実現する。
 
 ---
