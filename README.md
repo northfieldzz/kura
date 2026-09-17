@@ -3,6 +3,34 @@
 マルチテナント環境における大規模言語モデル（Microsoft Foundry, Google Gemini 等）へのアクセスを一元管理・中継する、超軽量・高パフォーマンスな API ゲートウェイ。
 Standard Go Project Layout をベースにしたレイヤードアーキテクチャ（クリーンアーキテクチャ簡略版）を採用。
 
+## 💡 なぜ LLM Gateway を作ったのか？（背景と目的）
+
+マルチプロダクトや複数チームが関わる開発において、各アプリケーションが各種 LLM（Microsoft Foundry, Google Gemini 等）を直接呼び出す運用には、以下のような課題が発生します。
+
+1. **コスト・トークン消費のブラックボックス化**:
+   どのチームや機能がどれだけコストを消費したかを横断的に追跡・配賦（Showback / Chargeback）することが困難。
+2. **過剰請求・リソース枯渇の事故リスク**:
+   開発中のループバグや急激なトラフィック急増時に、予算上限でリクエストを自動停止するフェイルセーフが存在しない。
+3. **ベンダーロックインと実装の重複**:
+   プロバイダー独自の SDK や API 仕様（認証ヘッダー、ストリーミング、新機能パラメータ）にアプリが依存し、モデル移行や新モデル採用のコストが増大。
+4. **セキュリティ・ガバナンス統制の欠如**:
+   プロバイダーのマスター API キーを開発者やコンテナに直接配布することによる漏洩リスク、高価モデルの無秩序な利用、日本国内データレジデンシー等の企業ポリシーの徹底が困難。
+5. **重量な既存 OSS プロキシの運用負荷**:
+   Python 製などの大規模プロキシ（LiteLLM 等）は、コンテナサイズ・起動時間・メモリフットプリントが大きく、軽量コンテナ基盤においてオーバーヘッドになりやすい。
+
+### 🎯 本プロジェクトが提供する価値（コア思想）
+
+- **超軽量・極低レイテンシー (Go × Alpine)**:
+  CGO なしの Go 実装。数MBの Alpine コンテナで瞬時に起動し、最小の CPU/メモリ使用量とほぼゼロに近いプロキシオーバーヘッドを実現。
+- **OpenAI 互換規格によるインターフェース統一**:
+  クライアントは使い慣れた単一エンドポイント (`/v1/chat/completions`) を叩くだけ。仮想モデルエイリアス (`fast`, `smart`, `flash`) により、アプリ側のコード変更なしで裏側のモデルを柔軟に切り替え。
+- **確実なコストガード & バーチャルキー管理**:
+  Amazon DynamoDB（Single Table Design）によるミリ秒単位のリアルタイム集計。予算上限到達時の即時自動遮断 (`429 Too Many Requests`)、許可モデル制限付きバーチャルキー発行、動的レートリミット（RPM制御）。
+- **完全自律型運用（外部バッチ不要）**:
+  EventBridge や Lambda を必要とせず、プロセス内 Goroutine と DynamoDB 分散ロックにより月次締めレポート集計・アラート通知を完結。
+
+---
+
 ## 主な機能
 - **OpenAI 互換エンドポイント (`/v1/chat/completions`)**: 単一のインターフェースで全ベンダーにアクセス。
 - **バーチャルキー管理**: キーごとの許可モデル制限（`allowed_models`、ワイルドカード対応）、有効期限（`expires_at`）、コスト上限設定。
@@ -48,12 +76,24 @@ llm_gateway/
 │           ├── admin_handler.go    # 管理用 API ハンドラ (/api/v1/llm/internal/*)
 │           ├── middleware.go       # 認証・レート制限・コンテキスト付与ミドルウェア
 │           └── response.go         # レスポンスヘルパー
-├── docs/                           # システム仕様書 (SPECIFICATION.md)
+├── docs/                           # システム仕様書群 (細分化ドキュメント)
 ├── Dockerfile                      # Gateway 本体マルチステージビルド (Alpine)
 ├── Dockerfile.mock                 # モックサーバー用マルチステージビルド
 ├── compose.yaml                    # ローカル検証用 (Gateway + Mock + DynamoDB)
 └── go.mod
 ```
+
+## 📖 仕様書・詳細ドキュメント
+
+詳細な設計仕様は [docs/](docs/SPECIFICATION.md) 配下に細分化して管理しています。各エンドポイントの入出力スキーマやコードサンプルは [Scalar API ドキュメント](http://localhost:8088/api/v1/llm/docs) を参照してください。
+
+- **[全体システム仕様書 (目次)](docs/SPECIFICATION.md)**
+- **[アーキテクチャ & レイヤー設計](docs/architecture.md)**: 全体構成、Standard Go Layout、データレジデンシー、未知パラメータ透過
+- **[認証 & バーチャルキー仕様](docs/auth-and-virtual-keys.md)**: モデル制限、有効期限、動的レートリミット (RPM 制御)
+- **[課金モデル & クォータ制御](docs/billing-and-quota.md)**: PayG / Capped プラン、単価マスタ、リアルタイム集計、レスポンスヘッダー
+- **[DynamoDB スキーマ仕様](docs/dynamodb-schema.md)**: Single Table Design、アトミック集計加算、JST 締め切り仕様
+- **[スケジューラー & オブザーバビリティ](docs/scheduler-and-observability.md)**: 内蔵 Cron、分散ロック、非同期構造化ログ、Slack通知
+- **[API リファレンス概要](docs/api-reference.md)**: Scalar / OpenAPI 案内とエンドポイントサマリ一覧
 
 ---
 
