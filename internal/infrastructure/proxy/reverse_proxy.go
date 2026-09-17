@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -103,13 +104,36 @@ func (p *LLMProxy) handleStreaming(
 		return
 	}
 
+	// クライアント切断と連動するキャンセル可能コンテキスト
+	clientCtx := r.Context()
+	streamCtx, cancelStream := context.WithCancel(clientCtx)
+	defer cancelStream()
+
+	// アップストリーム用リクエストに streamCtx を紐付け
+	targetReq = targetReq.WithContext(streamCtx)
+
 	vendorStartTime := time.Now()
 	resp, err := p.transport.RoundTrip(targetReq)
 	if err != nil {
+		if errors.Is(streamCtx.Err(), context.Canceled) {
+			log.Printf("[INFO] Client canceled streaming before response headers received. RequestID: %s", requestID)
+			return
+		}
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, fmt.Sprintf("Vendor connection error: %v", err), "")
 		return
 	}
 	defer resp.Body.Close()
+
+	// クライアント切断時にアップストリームの resp.Body を即座にクローズしてブロッキング読み込みを強制解除する
+	stopMonitor := make(chan struct{})
+	defer close(stopMonitor)
+	go func() {
+		select {
+		case <-streamCtx.Done():
+			_ = resp.Body.Close()
+		case <-stopMonitor:
+		}
+	}()
 
 	// エラーレスポンス (4xx/5xx) のハンドリング
 	if resp.StatusCode >= 400 {
@@ -130,16 +154,17 @@ func (p *LLMProxy) handleStreaming(
 	var finalUsage *entity.UsageInfo
 	var ttftRecorded bool
 	var ttftMs int64
-
-	// クライアント切断監視による Goroutine リーク防止
-	doneChan := r.Context().Done()
+	var clientDisconnected bool
 
 	for {
 		select {
-		case <-doneChan:
-			// クライアントが切断した場合、即座に終了してリソースを解放
-			return
+		case <-streamCtx.Done():
+			clientDisconnected = true
+			break
 		default:
+		}
+		if clientDisconnected {
+			break
 		}
 
 		line, err := reader.ReadBytes('\n')
@@ -154,14 +179,21 @@ func (p *LLMProxy) handleStreaming(
 				finalUsage = usage
 			}
 
-			// チャンクをクライアントへ即時転送
-			_, _ = w.Write(line)
+			// チャンクをクライアントへ即時転送（クライアント切断時は即時キャンセル）
+			if _, writeErr := w.Write(line); writeErr != nil {
+				log.Printf("[INFO] Client connection lost during stream write (RequestID: %s): %v", requestID, writeErr)
+				clientDisconnected = true
+				cancelStream()
+				break
+			}
 			flusher.Flush()
 		}
 
 		if err != nil {
-			if err != io.EOF {
-				// 途中のエラー
+			if errors.Is(streamCtx.Err(), context.Canceled) {
+				clientDisconnected = true
+			} else if err != io.EOF {
+				log.Printf("[WARN] Streaming read error from vendor: %v (RequestID: %s)", err, requestID)
 			}
 			break
 		}
@@ -174,27 +206,30 @@ func (p *LLMProxy) handleStreaming(
 		gatewayLatencyMs = 0
 	}
 
-	// オブザーバビリティ ログ出力
-	log.Printf("[OBSERVABILITY] Streaming Finished -> RequestID: %s, Total: %dms, Vendor: %dms, Gateway: %dms, TTFT: %dms\n",
-		requestID, totalDuration.Milliseconds(), vendorDuration.Milliseconds(), gatewayLatencyMs, ttftMs)
+	if clientDisconnected {
+		log.Printf("[INFO] Client disconnected during streaming. Upstream canceled -> RequestID: %s, Duration: %dms\n",
+			requestID, totalDuration.Milliseconds())
+	} else {
+		// オブザーバビリティ ログ出力
+		log.Printf("[OBSERVABILITY] Streaming Finished -> RequestID: %s, Total: %dms, Vendor: %dms, Gateway: %dms, TTFT: %dms\n",
+			requestID, totalDuration.Milliseconds(), vendorDuration.Milliseconds(), gatewayLatencyMs, ttftMs)
+	}
 
 	var promptTokens, completionTokens, totalTokens int64
 	if finalUsage != nil {
 		promptTokens = int64(finalUsage.PromptTokens)
 		completionTokens = int64(finalUsage.CompletionTokens)
 		totalTokens = int64(finalUsage.TotalTokens)
-	} else {
+	} else if !clientDisconnected {
 		log.Printf("[WARN] No usage information returned from vendor for streaming request %s", requestID)
 	}
 
-	// クレジット・費用計算
+	// クレジット・費用計算 & 集計（途中で切断されてもトークン情報が取れていれば計上）
 	var cost float64
 	if totalTokens > 0 {
 		cost = entity.CalculateCost(reqObj.Model, promptTokens, completionTokens)
+		p.recordUsage(tenantCtx, reqObj.Model, promptTokens, completionTokens, totalTokens, cost)
 	}
-
-	// DynamoDB / インメモリ 利用量集計
-	p.recordUsage(tenantCtx, reqObj.Model, promptTokens, completionTokens, totalTokens, cost)
 }
 
 func (p *LLMProxy) handleNonStreaming(
@@ -207,16 +242,41 @@ func (p *LLMProxy) handleNonStreaming(
 	gatewayStartTime time.Time,
 	requestID string,
 ) {
+	clientCtx := r.Context()
+	reqCtx, cancelReq := context.WithCancel(clientCtx)
+	defer cancelReq()
+
+	targetReq = targetReq.WithContext(reqCtx)
+
 	vendorStartTime := time.Now()
 	resp, err := p.transport.RoundTrip(targetReq)
 	if err != nil {
+		if errors.Is(reqCtx.Err(), context.Canceled) {
+			log.Printf("[INFO] Client canceled non-streaming request before response headers received. RequestID: %s", requestID)
+			return
+		}
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, fmt.Sprintf("Vendor connection error: %v", err), "")
 		return
 	}
 	defer resp.Body.Close()
 
+	// 読み込み監視
+	stopMonitor := make(chan struct{})
+	defer close(stopMonitor)
+	go func() {
+		select {
+		case <-reqCtx.Done():
+			_ = resp.Body.Close()
+		case <-stopMonitor:
+		}
+	}()
+
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if errors.Is(reqCtx.Err(), context.Canceled) {
+			log.Printf("[INFO] Client canceled non-streaming request while reading body. RequestID: %s", requestID)
+			return
+		}
 		sendError(w, http.StatusInternalServerError, entity.ErrorTypeInternalError, "Failed to read vendor response", "")
 		return
 	}
@@ -265,7 +325,9 @@ func (p *LLMProxy) handleNonStreaming(
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(normalizedBody)
+	if _, err := w.Write(normalizedBody); err != nil {
+		log.Printf("[INFO] Failed to write response to client (client likely disconnected). RequestID: %s, Err: %v", requestID, err)
+	}
 }
 
 func (p *LLMProxy) recordUsage(
