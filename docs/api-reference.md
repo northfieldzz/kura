@@ -34,7 +34,37 @@ LLM Gateway では、API 定義の二重管理・ドキュメントの陳腐化�
 | `/v1/realtime` | `GET` | Bearer キー | OpenAI Realtime API (WebSocket) パススルー |
 | `/api/v1/llm/realtime` | `GET` | Bearer キー | 同上 (Scalar / OpenAPI 公開用ルート) |
 
-### 2.3 管理用 API (Internal)
+### 2.3 サービス・テナント向け自己照会 API
+サービス（クライアント）が自身の API キーや識別子を用いて、当月の累計消費量、予算上限、残り予算枠、許可モデル、有効期限をリアルタイムに自己照会するエンドポイント。
+
+| パス | メソッド | 認証 | 概要 |
+|---|:---:|:---:|---|
+| `/v1/usage` | `GET` | Bearer キー | サービス/キー別月次使用量・リアルタイム残枠確認 |
+| `/api/v1/llm/usage` | `GET` | Bearer キー | 同上 (Scalar / OpenAPI 公開用ルート) |
+
+**レスポンス例 (`200 OK`)**:
+```json
+{
+  "service_id": "payment-service",
+  "tenant_id": "tenant-corp-a",
+  "month": "2026-09",
+  "billing_type": "capped",
+  "service_cost_limit_usd": 100.0,
+  "service_total_cost_usd": 25.5,
+  "service_remaining_cost_usd": 74.5,
+  "key_cost_limit_usd": 50.0,
+  "total_tokens": 150000,
+  "prompt_tokens": 100000,
+  "completion_tokens": 50000,
+  "allowed_models": ["gpt-4o", "claude-3-5-sonnet-20241022"],
+  "expires_at": "2026-12-31T23:59:59Z",
+  "is_quota_exceeded": false
+}
+```
+> [!NOTE]
+> `billing_type` が `pay_as_you_go` の場合、予算上限なしのため `service_remaining_cost_usd` は `-1` が返却される。
+
+### 2.4 管理用 API (Internal)
 マスター API キー（`X-Admin-API-Key` または `Authorization: Bearer <ADMIN_API_KEY>`）による認証が必要。
 
 | パス | メソッド | 概要 |
@@ -46,3 +76,4 @@ LLM Gateway では、API 定義の二重管理・ドキュメントの陳腐化�
 | `/api/v1/llm/internal/usage` | `GET` | サービス別月次トークン消費量・概算コスト・モデル別内訳レポート取得 |
 | `/api/v1/llm/internal/jobs/run` | `POST` | 定期バッチジョブ (`monthly_report`, `quota_alerts`) の手動即時実行 |
 | `/api/v1/llm/internal/notifications` | `GET` | Gateway 内部に蓄積された通知・アラート一覧取得 |
+

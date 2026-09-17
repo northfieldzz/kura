@@ -19,15 +19,21 @@ type Handler struct {
 	chatUseCase    usecase.ChatUseCase
 	realtimeProxy  *websocket.RealtimeProxy
 	quotaRepo      repository.QuotaRepository
+	authUseCase    usecase.AuthUseCase
 	isShuttingDown atomic.Bool
 }
 
 // NewHandler は Handler インスタンスを生成する
-func NewHandler(chatUseCase usecase.ChatUseCase, realtimeProxy *websocket.RealtimeProxy, quotaRepo repository.QuotaRepository) *Handler {
+func NewHandler(chatUseCase usecase.ChatUseCase, realtimeProxy *websocket.RealtimeProxy, quotaRepo repository.QuotaRepository, authUseCase ...usecase.AuthUseCase) *Handler {
+	var auc usecase.AuthUseCase
+	if len(authUseCase) > 0 {
+		auc = authUseCase[0]
+	}
 	return &Handler{
 		chatUseCase:   chatUseCase,
 		realtimeProxy: realtimeProxy,
 		quotaRepo:     quotaRepo,
+		authUseCase:   auc,
 	}
 }
 
@@ -163,4 +169,46 @@ func (h *Handler) Realtime(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.realtimeProxy.ServeWebSocket(w, r, tenantCtx)
+}
+
+// GetKeyUsage は認証されたキー/サービスの当月利用量とリアルタイム残枠サマリを返却する (GET /v1/usage)
+func (h *Handler) GetKeyUsage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		WriteError(w, entity.NewStandardError(http.StatusMethodNotAllowed, entity.ErrorTypeInvalidRequest, "Method not allowed", ""))
+		return
+	}
+
+	tenantCtx := GetTenantContextFromContext(r.Context())
+	if tenantCtx == nil {
+		WriteError(w, entity.NewStandardError(
+			http.StatusUnauthorized,
+			entity.ErrorTypeUnauthorized,
+			"Unauthorized",
+			"missing_auth",
+		))
+		return
+	}
+
+	if h.authUseCase == nil {
+		WriteError(w, entity.NewStandardError(
+			http.StatusInternalServerError,
+			entity.ErrorTypeInternalError,
+			"Auth usecase not initialized",
+			"",
+		))
+		return
+	}
+
+	summary, err := h.authUseCase.GetKeyUsageSummary(r.Context(), tenantCtx)
+	if err != nil {
+		WriteError(w, entity.NewStandardError(
+			http.StatusInternalServerError,
+			entity.ErrorTypeInternalError,
+			err.Error(),
+			"",
+		))
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, summary)
 }

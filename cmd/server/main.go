@@ -67,7 +67,7 @@ func main() {
 	rateLimiter := ratelimit.NewMemoryRateLimiter(cfg.RateLimitRPM)
 	rateLimitMiddleware := delivery.NewRateLimitMiddleware(rateLimiter, promMetrics)
 	authMiddleware := delivery.NewAuthMiddleware(authUseCase)
-	handler := delivery.NewHandler(chatUseCase, realtimeProxy, quotaRepo)
+	handler := delivery.NewHandler(chatUseCase, realtimeProxy, quotaRepo, authUseCase)
 	adminHandler := delivery.NewAdminHandler(adminUseCase, batchUseCase, cfg.AdminAPIKey)
 
 	// 6. ルーティング & Huma v2 (OpenAPI 3.1 & Scalar 自動生成) 設定
@@ -78,6 +78,7 @@ func main() {
 	standardChatHandler := authMiddleware.Wrap(rateLimitMiddleware.Wrap(handler.ChatCompletions))
 	mux.HandleFunc("/v1/chat/completions", standardChatHandler)
 	mux.HandleFunc("/v1/realtime", authMiddleware.Wrap(handler.Realtime))
+	mux.HandleFunc("/v1/usage", authMiddleware.Wrap(handler.GetKeyUsage))
 	mux.HandleFunc("/health", handler.HealthCheck)
 	mux.HandleFunc("/health/live", handler.Liveness)
 	mux.HandleFunc("/health/ready", handler.Readiness)

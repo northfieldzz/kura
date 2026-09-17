@@ -42,6 +42,7 @@ func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 		"/api/llm/health/ready",
 		"/api/v1/llm/chat/completions",
 		"/api/v1/llm/realtime",
+		"/api/v1/llm/usage",
 		"/api/v1/llm/internal/usage",
 		"/api/v1/llm/internal/limits",
 		"/api/v1/llm/internal/keys",

@@ -10,6 +10,7 @@ import (
 
 	delivery "github.com/northfieldzz/llm_gateway/internal/delivery/http"
 	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
+	"github.com/northfieldzz/llm_gateway/internal/usecase"
 )
 
 type mockQuotaRepoForHealth struct {
@@ -160,3 +161,62 @@ func TestReadinessProbe_DatabaseError(t *testing.T) {
 		t.Errorf("expected status degraded, got %v", res["status"])
 	}
 }
+
+type mockAuthUseCaseForUsage struct {
+	summary *entity.KeyUsageSummary
+	err     error
+}
+
+func (m *mockAuthUseCaseForUsage) AuthenticateRequest(ctx context.Context, req *http.Request, rawBody string) (*usecase.AuthResult, *entity.StandardErrorResponse) {
+	return nil, nil
+}
+func (m *mockAuthUseCaseForUsage) GetKeyUsageSummary(ctx context.Context, tenantCtx *entity.TenantContext) (*entity.KeyUsageSummary, error) {
+	return m.summary, m.err
+}
+
+func TestGetKeyUsage(t *testing.T) {
+	mockAuth := &mockAuthUseCaseForUsage{
+		summary: &entity.KeyUsageSummary{
+			ServiceID:           "service-demo",
+			TenantID:            "tenant-alpha",
+			Month:               "2026-09",
+			BillingType:         "capped",
+			ServiceCostLimitUSD: 100.0,
+			ServiceTotalCostUSD: 20.0,
+			ServiceRemainingUSD: 80.0,
+		},
+	}
+	h := delivery.NewHandler(nil, nil, nil, mockAuth)
+
+	// Case 1: Unauthorized (no context)
+	reqUnauth := httptest.NewRequest(http.MethodGet, "/v1/usage", nil)
+	recUnauth := httptest.NewRecorder()
+	h.GetKeyUsage(recUnauth, reqUnauth)
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized, got %d", recUnauth.Code)
+	}
+
+	// Case 2: Authorized
+	reqAuth := httptest.NewRequest(http.MethodGet, "/v1/usage", nil)
+	tenantCtx := &entity.TenantContext{
+		ServiceID: "service-demo",
+		TenantID:  "tenant-alpha",
+		APIKey:    "sk-test",
+	}
+	reqAuth = reqAuth.WithContext(context.WithValue(reqAuth.Context(), delivery.TenantContextKey, tenantCtx))
+	recAuth := httptest.NewRecorder()
+
+	h.GetKeyUsage(recAuth, reqAuth)
+	if recAuth.Code != http.StatusOK {
+		t.Errorf("expected 200 OK, got %d", recAuth.Code)
+	}
+
+	var res entity.KeyUsageSummary
+	if err := json.Unmarshal(recAuth.Body.Bytes(), &res); err != nil {
+		t.Fatalf("failed to decode json: %v", err)
+	}
+	if res.ServiceID != "service-demo" || res.ServiceRemainingUSD != 80.0 {
+		t.Errorf("unexpected response content: %+v", res)
+	}
+}
+

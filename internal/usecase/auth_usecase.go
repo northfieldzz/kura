@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
 	"github.com/northfieldzz/llm_gateway/internal/domain/repository"
@@ -24,6 +25,9 @@ type AuthResult struct {
 type AuthUseCase interface {
 	// AuthenticateRequest は HTTP リクエストからヘッダーやボディを解析し、認証およびクォータ判定を行う
 	AuthenticateRequest(ctx context.Context, r *http.Request, rawBodyUser string) (*AuthResult, *entity.StandardErrorResponse)
+
+	// GetKeyUsageSummary は指定された TenantContext (APIキー / 3階層) の当月消費量とリアルタイム残枠サマリを取得する
+	GetKeyUsageSummary(ctx context.Context, tenantCtx *entity.TenantContext) (*entity.KeyUsageSummary, error)
 }
 
 type authUseCase struct {
@@ -193,4 +197,95 @@ func parseTagsHeader(header string) map[string]string {
 		}
 	}
 	return tags
+}
+
+func (u *authUseCase) GetKeyUsageSummary(ctx context.Context, tenantCtx *entity.TenantContext) (*entity.KeyUsageSummary, error) {
+	if tenantCtx == nil {
+		return nil, fmt.Errorf("tenant context is required")
+	}
+
+	currentMonth := entity.CurrentMonthJST()
+
+	// 1. サービス全体の当月利用実績・上限取得
+	serviceReport, _ := u.repo.GetServiceMonthlyUsage(ctx, tenantCtx.ServiceID, currentMonth)
+
+	billingType := string(entity.BillingTypePAYG)
+	serviceCostLimit := float64(0)
+	serviceTotalCost := float64(0)
+	totalTokens := int64(0)
+	promptTokens := int64(0)
+	completionTokens := int64(0)
+
+	if serviceReport != nil {
+		serviceCostLimit = serviceReport.CostLimit
+		serviceTotalCost = serviceReport.TotalCostUSD
+		totalTokens = serviceReport.TotalTokens
+		if serviceReport.BillingType != "" {
+			billingType = serviceReport.BillingType
+		} else if serviceCostLimit > 0 {
+			billingType = string(entity.BillingTypeCapped)
+		}
+	} else if svcConfig, _ := u.repo.GetServiceConfig(ctx, tenantCtx.ServiceID); svcConfig != nil {
+		serviceCostLimit = svcConfig.CostLimit
+		billingType = string(svcConfig.EffectiveBillingType())
+	}
+
+	// テナントが指定されている場合、テナント月次実績からプロンプト/完了トークン内訳を集計
+	if tenantCtx.TenantID != "" {
+		if tenantUsage, _ := u.repo.GetTenantUsage(ctx, tenantCtx.ServiceID, tenantCtx.TenantID, currentMonth); tenantUsage != nil {
+			for _, m := range tenantUsage.Models {
+				promptTokens += m.PromptTokens
+				completionTokens += m.CompletionTokens
+			}
+		}
+	}
+
+	// 2. 残り予算枠の計算 (上限設定なし = -1)
+	remainingUSD := float64(-1)
+	isExceeded := false
+	if serviceCostLimit > 0 {
+		if serviceTotalCost >= serviceCostLimit {
+			remainingUSD = 0
+			isExceeded = true
+		} else {
+			remainingUSD = serviceCostLimit - serviceTotalCost
+		}
+	}
+
+	// 3. バーチャルキー情報の照会 (キー固有の制限・有効期限)
+	var allowedModels []string
+	var keyCostLimit float64
+	var expiresAt string
+
+	if tenantCtx.APIKey != "" {
+		if keyRec, _ := u.repo.GetAPIKey(ctx, tenantCtx.APIKey); keyRec != nil {
+			allowedModels = keyRec.AllowedModels
+			keyCostLimit = keyRec.CostLimit
+			if !keyRec.ExpiresAt.IsZero() {
+				expiresAt = keyRec.ExpiresAt.Format(time.RFC3339)
+			}
+		} else {
+			allowedModels = tenantCtx.AllowedModels
+			keyCostLimit = tenantCtx.KeyCostLimit
+		}
+	}
+
+	summary := &entity.KeyUsageSummary{
+		ServiceID:           tenantCtx.ServiceID,
+		TenantID:            tenantCtx.TenantID,
+		Month:               currentMonth,
+		BillingType:         billingType,
+		ServiceCostLimitUSD: serviceCostLimit,
+		ServiceTotalCostUSD: serviceTotalCost,
+		ServiceRemainingUSD: remainingUSD,
+		KeyCostLimitUSD:     keyCostLimit,
+		TotalTokens:         totalTokens,
+		PromptTokens:        promptTokens,
+		CompletionTokens:    completionTokens,
+		AllowedModels:       allowedModels,
+		ExpiresAt:           expiresAt,
+		IsQuotaExceeded:     isExceeded,
+	}
+
+	return summary, nil
 }

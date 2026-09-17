@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/northfieldzz/llm_gateway/internal/domain/entity"
 )
@@ -221,3 +222,117 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 		t.Errorf("unexpected Tags parsed: %+v", resMeta.TenantContext.Tags)
 	}
 }
+
+func TestAuthUseCase_GetKeyUsageSummary(t *testing.T) {
+	currentMonth := entity.CurrentMonthJST()
+
+	repo := &mockQuotaRepo{
+		getServiceUsageFn: func(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error) {
+			if serviceID == "service-capped" {
+				return &entity.ServiceMonthlyReport{
+					ServiceID:    serviceID,
+					Month:        month,
+					BillingType:  "capped",
+					CostLimit:    100.0,
+					TotalCostUSD: 25.5,
+					TotalTokens:  150000,
+				}, nil
+			}
+			return &entity.ServiceMonthlyReport{
+				ServiceID:    serviceID,
+				Month:        month,
+				BillingType:  "payg",
+				CostLimit:    0,
+				TotalCostUSD: 10.0,
+				TotalTokens:  50000,
+			}, nil
+		},
+		getTenantUsageFn: func(ctx context.Context, serviceID, tenantID, month string) (*entity.TenantMonthlyUsage, error) {
+			return &entity.TenantMonthlyUsage{
+				ServiceID: serviceID,
+				TenantID:  tenantID,
+				Models: map[string]*entity.ModelUsage{
+					"gpt-4o": {
+						PromptTokens:     80000,
+						CompletionTokens: 40000,
+					},
+				},
+			}, nil
+		},
+		getAPIKeyFn: func(ctx context.Context, apiKey string) (*entity.APIKeyRecord, error) {
+			if apiKey == "sk-key-with-rules" {
+				exp := time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC)
+				return &entity.APIKeyRecord{
+					APIKey:        apiKey,
+					ServiceID:     "service-capped",
+					AllowedModels: []string{"gpt-4o", "claude-3-5-sonnet-20241022"},
+					CostLimit:     50.0,
+					ExpiresAt:     &exp,
+				}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	uc := NewAuthUseCase(repo)
+
+	// Case 1: Capped Service with Key Rules
+	tenantCtx := &entity.TenantContext{
+		ServiceID: "service-capped",
+		TenantID:  "tenant-alpha",
+		APIKey:    "sk-key-with-rules",
+	}
+
+	summary, err := uc.GetKeyUsageSummary(context.Background(), tenantCtx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if summary.ServiceID != "service-capped" || summary.TenantID != "tenant-alpha" {
+		t.Errorf("tenant context mismatch: %+v", summary)
+	}
+	if summary.Month != currentMonth {
+		t.Errorf("expected month %s, got %s", currentMonth, summary.Month)
+	}
+	if summary.BillingType != "capped" {
+		t.Errorf("expected capped, got %s", summary.BillingType)
+	}
+	if summary.ServiceCostLimitUSD != 100.0 {
+		t.Errorf("expected service limit 100.0, got %f", summary.ServiceCostLimitUSD)
+	}
+	if summary.ServiceRemainingUSD != 74.5 {
+		t.Errorf("expected remaining budget 74.5, got %f", summary.ServiceRemainingUSD)
+	}
+	if summary.KeyCostLimitUSD != 50.0 {
+		t.Errorf("expected key cost limit 50.0, got %f", summary.KeyCostLimitUSD)
+	}
+	if len(summary.AllowedModels) != 2 || summary.AllowedModels[0] != "gpt-4o" {
+		t.Errorf("expected allowed models, got %v", summary.AllowedModels)
+	}
+	if summary.PromptTokens != 80000 || summary.CompletionTokens != 40000 {
+		t.Errorf("expected prompt 80000 and completion 40000, got prompt=%d, completion=%d", summary.PromptTokens, summary.CompletionTokens)
+	}
+	if summary.IsQuotaExceeded {
+		t.Errorf("expected not exceeded")
+	}
+
+	// Case 2: PAYG Service (RemainingBudgetUSD == -1)
+	tenantPayg := &entity.TenantContext{
+		ServiceID: "service-payg",
+		TenantID:  "tenant-beta",
+		APIKey:    "sk-payg-key",
+	}
+	summaryPayg, err := uc.GetKeyUsageSummary(context.Background(), tenantPayg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if summaryPayg.BillingType != "payg" {
+		t.Errorf("expected payg, got %s", summaryPayg.BillingType)
+	}
+	if summaryPayg.ServiceRemainingUSD != -1 {
+		t.Errorf("expected remaining budget -1 for payg, got %f", summaryPayg.ServiceRemainingUSD)
+	}
+	if summaryPayg.IsQuotaExceeded {
+		t.Errorf("expected not exceeded for payg")
+	}
+}
+

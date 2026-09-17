@@ -71,6 +71,16 @@ type RealtimeOutput struct {
 	} `doc:"WebSocket 接続情報"`
 }
 
+// KeyUsageInput はキー別残枠確認リクエスト型
+type KeyUsageInput struct {
+	Authorization string `header:"Authorization" doc:"Bearer トークン (APIキー または service:tenant:user)" required:"true" example:"Bearer my-app:team-alpha:user-01"`
+}
+
+// KeyUsageOutput はキー別残枠確認レスポンス型
+type KeyUsageOutput struct {
+	Body entity.KeyUsageSummary `doc:"キー別当月利用量およびリアルタイム残枠サマリ"`
+}
+
 // AdminUsageInput は管理者向け利用実績取得入力型
 type AdminUsageInput struct {
 	AdminKey       string `header:"X-Admin-API-Key" doc:"管理者用マスター API キー (または Authorization: Bearer)" example:"sk-admin-master-key"`
@@ -336,6 +346,27 @@ func SetupHumaAPI(
 			if hCtx, ok := ctx.Value(humaCtxKey).(huma.Context); ok {
 				req, rw := humago.Unwrap(hCtx)
 				authMiddleware.Wrap(handler.Realtime)(rw, req)
+			}
+		}
+		return nil, nil
+	})
+
+	// 3-1. GET /api/v1/llm/usage (キー別使用量・リアルタイム残枠確認)
+	huma.Register(api, huma.Operation{
+		OperationID: "get-key-usage-summary",
+		Method:      http.MethodGet,
+		Path:        "/api/v1/llm/usage",
+		Summary:     "キー別使用量・リアルタイム残枠確認",
+		Description: "自身のバーチャルキーに紐付く当月のトークン消費量、利用コスト、残り予算枠、許可モデル、有効期限をリアルタイムに照会する。",
+		Tags:        []string{"サービス向け API"},
+		Security: []map[string][]string{
+			{"TenantAuth": {}},
+		},
+	}, func(ctx context.Context, input *KeyUsageInput) (*KeyUsageOutput, error) {
+		if authMiddleware != nil && handler != nil {
+			if hCtx, ok := ctx.Value(humaCtxKey).(huma.Context); ok {
+				req, rw := humago.Unwrap(hCtx)
+				authMiddleware.Wrap(handler.GetKeyUsage)(rw, req)
 			}
 		}
 		return nil, nil
