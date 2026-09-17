@@ -1,0 +1,154 @@
+# LLM Gateway (AWS × Go)
+
+マルチテナント環境における大規模言語モデル（Microsoft Foundry, Google Gemini 等）へのアクセスを一元管理・中継する、超軽量・高パフォーマンスな API ゲートウェイ。
+Standard Go Project Layout をベースにしたレイヤードアーキテクチャ（クリーンアーキテクチャ簡略版）を採用。
+
+## 主な機能
+- **OpenAI 互換エンドポイント (`/v1/chat/completions`)**: 単一のインターフェースで全ベンダーにアクセス。
+- **バーチャルキー管理**: キーごとの許可モデル制限（`allowed_models`、ワイルドカード対応）、有効期限（`expires_at`）、コスト上限設定。
+- **仮想モデルエイリアス (Routing & Fallback)**: `fast` / `default` (`gpt-5.4-mini`), `smart` / `code` (`claude-3-5-sonnet`), `flash` (`gemini-1.5-flash`) などの共通エイリアス解決。
+- **動的レートリミット（RPM制御）**: テナント/キー単位のオンデマンドな分間リクエスト制御（ノイジーネイバー防止）。超過時は即座に 429 Too Many Requests を返却。
+- **透過メタデータ・タグ収集**: `X-Environment`, `X-Feature`, `X-Tags` ヘッダーから事前マスタなしで透過的に収集・利用ログへ付与。
+- **SSE ストリーミング制御**: バッファリング完全無効化、最終フレームでの正確なトークン計測。
+- **未知パラメータのパススルー (FR-06)**: 各ベンダーの新機能パラメータ（`thinking` 等）をそのまま透過。
+- **非同期利用量ログ**: メイン処理をブロックせず、標準出力へ JSON 構造化ログを出力（CloudWatch Logs / Firehose 互換）。
+- **リアルタイム通信**: `/v1/realtime` の WebSocket パススルー。
+- **統合 LLM モックサーバー**: ローカル開発・CI検証用の Microsoft Foundry & Google AI Studio スタブサーバーを内包。
+
+---
+
+## ディレクトリ構造
+
+```
+llm_gateway/
+├── cmd/
+│   ├── server/                     # Gateway 本体エントリーポイント
+│   └── mock_server/                # Microsoft Foundry & AI Studio 統合モックサーバー
+├── internal/
+│   ├── domain/                     # ドメイン層（エンティティ・インターフェース）
+│   │   ├── entity/                 # Chat, Tenant, APIKey, Pricing, Error, Usage 等
+│   │   ├── repository/             # QuotaRepository インターフェース
+│   │   └── service/                # Adapter, UsageLogger, RateLimiter インターフェース
+│   ├── usecase/                    # ユースケース層（業務ロジック）
+│   │   ├── auth_usecase.go         # キー認証・タグ抽出・クォータ上限判定 (429)
+│   │   ├── chat_usecase.go         # 仮想モデル名解決・モデルアクセス認可 (403)
+│   │   └── admin_usecase.go        # 管理用 API・キー発行・クォータ設定
+│   ├── infrastructure/             # インフラ層（外部連携・具象実装）
+│   │   ├── adapter/                # OpenAI / Microsoft Foundry アダプター
+│   │   ├── config/                 # 環境変数ローダー
+│   │   ├── dynamodb/               # DynamoDB クォータ永続化 (インメモリフォールバック対応)
+│   │   ├── logger/                 # 非同期構造化コンソールロガー
+│   │   ├── proxy/                  # リバースプロキシ・SSE・Usageインターセプト
+│   │   ├── ratelimit/              # インメモリ・スライディングウィンドウ・レートリミッター
+│   │   └── websocket/              # WebSocket パススルー
+│   └── delivery/                   # プレゼンテーション層
+│       └── http/
+│           ├── api.go              # Huma v2 OpenAPI 3.1 & Scalar ドキュメント自動生成
+│           ├── handler.go          # HTTP ハンドラ (/health, /v1/chat/completions, /v1/realtime)
+│           ├── admin_handler.go    # 管理用 API ハンドラ (/api/v1/llm/internal/*)
+│           ├── middleware.go       # 認証・レート制限・コンテキスト付与ミドルウェア
+│           └── response.go         # レスポンスヘルパー
+├── docs/                           # システム仕様書 (SPECIFICATION.md)
+├── Dockerfile                      # Gateway 本体マルチステージビルド (Alpine)
+├── Dockerfile.mock                 # モックサーバー用マルチステージビルド
+├── compose.yaml                    # ローカル検証用 (Gateway + Mock + DynamoDB)
+└── go.mod
+```
+
+---
+
+## ローカル起動手順
+
+### 1. 単体起動 (Go 環境)
+```bash
+cd llm_gateway
+go run ./cmd/server
+```
+※ DynamoDB が未起動の場合、自動的にインメモリストアにフォールバックして単体起動します。
+
+### 2. Docker / nerdctl での起動 (推奨)
+```bash
+# 全体 (Gateway + Mock + DynamoDB) 起動
+nerdctl compose up -d --build
+```
+- **Gateway 本体**: `http://localhost:8080` (または compose 内ポート)
+- **Scalar API ドキュメント (Go サンプル付き)**: `http://localhost:8080/api/v1/llm/docs`
+- **OpenAPI 3.1 仕様書**: `http://localhost:8080/api/v1/llm/openapi.json`
+- **統合 LLM モックサーバー**: `http://localhost:8090`
+
+---
+
+## 環境変数一覧
+
+| 環境変数 | 説明 | デフォルト値 |
+| :--- | :--- | :--- |
+| `PORT` | サーバー待受ポート | `8080` |
+| `AWS_REGION` | AWS リージョン | `ap-northeast-1` |
+| `ADMIN_API_KEY` | 管理者用マスターキー | `sk-admin-master-key` |
+| `DEFAULT_TOKEN_QUOTA` | 初期テナントの月間トークン上限 | `1000000` |
+| `RATE_LIMIT_RPM` | 1分あたりの最大リクエスト数 (0で無制限) | `600` |
+| `DYNAMODB_ENDPOINT` | DynamoDB エンドポイント (ローカル: `http://dynamodb:8000`) | 空 (AWS デフォルト) |
+| `DYNAMODB_TABLE_NAME` | DynamoDB 利用量テーブル名 | `LLMGatewayUsage` |
+| `MICROSOFT_FOUNDRY_ENDPOINT` | Microsoft Foundry ベース URL (旧 `AZURE_OPENAI_ENDPOINT`) | 空 |
+| `MICROSOFT_FOUNDRY_API_KEY` | Microsoft Foundry API キー (旧 `AZURE_OPENAI_API_KEY`) | 空 |
+| `MICROSOFT_FOUNDRY_API_VERSION`| Microsoft Foundry API バージョン (旧 `AZURE_OPENAI_API_VERSION`) | `2024-02-15-preview` |
+| `MICROSOFT_FOUNDRY_ENDPOINT_JAPAN` | 日本国内限定エンドポイント (X-Data-Residency: japan 指定時) | 空 |
+| `GEMINI_API_KEY` | Google Gemini API キー | 空 |
+| `GEMINI_BASE_URL` | Google Gemini ベース URL | `https://generativelanguage.googleapis.com` |
+
+---
+
+## API リクエスト例
+
+### 1. ヘルスチェック
+```bash
+curl -i http://localhost:8080/health
+```
+
+### 2. チャット補完 (メタデータ・タグ付与)
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk-internal-team-alpha" \
+  -H "X-Environment: staging" \
+  -H "X-Feature: rag-search" \
+  -H "X-Tags: team=infra,experiment=v1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.4-mini",
+    "messages": [{"role": "user", "content": "こんにちは"}],
+    "stream": true
+  }'
+```
+
+### 3. バーチャルキーの発行 (モデル制限・有効期限付き)
+```bash
+curl -X POST http://localhost:8080/api/v1/llm/internal/keys \
+  -H "X-Admin-API-Key: sk-admin-master-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "service_id": "intern-project",
+    "name": "Internship Key",
+    "allowed_models": ["gpt-5.4-mini", "gemini-*", "fast"],
+    "expires_at": "2026-12-31T23:59:59Z"
+  }'
+```
+
+---
+
+## CI / CD (GitHub Actions)
+
+`.github/workflows/docker-publish.yml` により、以下のトリガーで Docker Hub への自動ビルド・Push が行われます。
+
+- **トリガー**:
+  - `main`ブランチへの Push
+  - セマンティックバージョニングタグ（例: `v1.0.0`）の Push
+- **マルチアーキテクチャ対応**: `linux/amd64`, `linux/arm64`
+- **必要な GitHub リポジトリ Secrets**:
+  - `DOCKERHUB_USERNAME`: Docker Hub のユーザー名
+  - `DOCKERHUB_TOKEN`: Docker Hub のアクセストークン (Personal Access Token)
+
+---
+
+## ライセンス
+
+本プロジェクトは [MIT License](LICENSE) のもとで公開されています。

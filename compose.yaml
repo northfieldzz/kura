@@ -1,0 +1,51 @@
+include:
+  - path: dynamodb.compose.yaml
+
+services:
+  # ─── LLM Gateway Core Engine (Go) ───────────────────────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${GATEWAY_PORT:-8088}:8080"
+    expose:
+      - "8080"
+    env_file:
+      - .env
+    environment:
+      - PORT=8080
+      - DYNAMODB_ENDPOINT=http://dynamodb:8000
+      - DYNAMODB_TABLE_NAME=LLMGatewayUsage
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-sk-admin-master-key}
+      - AWS_REGION=ap-northeast-1
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
+      - DEFAULT_TOKEN_QUOTA=1000000
+      - MICROSOFT_FOUNDRY_ENDPOINT=${MICROSOFT_FOUNDRY_ENDPOINT:-http://mock-llm:8090}
+      - MICROSOFT_FOUNDRY_ENDPOINT_JAPAN=${MICROSOFT_FOUNDRY_ENDPOINT_JAPAN:-http://mock-llm:8090}
+      - MICROSOFT_FOUNDRY_API_KEY=${MICROSOFT_FOUNDRY_API_KEY:-mock-key}
+      - MICROSOFT_FOUNDRY_API_VERSION=${MICROSOFT_FOUNDRY_API_VERSION:-2024-02-15-preview}
+      - MICROSOFT_FOUNDRY_DEFAULT_DEPLOYMENT=${MICROSOFT_FOUNDRY_DEFAULT_DEPLOYMENT:-gpt-5.4-mini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    depends_on:
+      - dynamodb
+      - dynamodb-init
+    networks:
+      - default
+
+  # ─── LLM Endpoints Mock Server (Azure Foundry & Google AI Studio) ────
+  mock-llm:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    ports:
+      - "8090:8090"
+    environment:
+      - PORT=8090
+    networks:
+      - default
+
+networks:
+  default:
+    name: llm_gateway_network

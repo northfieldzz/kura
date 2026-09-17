@@ -1,0 +1,15 @@
+FROM golang:alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum* ./
+RUN go mod download || true
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /app/bin/mock_server ./cmd/mock_server
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+COPY --from=builder /app/bin/mock_server /app/mock_server
+
+EXPOSE 8090
+ENTRYPOINT ["/app/mock_server"]
