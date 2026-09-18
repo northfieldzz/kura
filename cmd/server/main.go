@@ -88,7 +88,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           delivery.CORSMiddleware(mux),
+		Handler:           delivery.CORSMiddleware(mux, cfg.AllowedOrigins),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}

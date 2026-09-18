@@ -24,10 +24,13 @@ type Config struct {
 	DefaultBillingType       string
 	EnableInternalCron       bool
 	RateLimitRPM             int
+	AllowedOrigins           string
 }
 
 // Load は環境変数から設定を安全に読み込み、デフォルト値を適用する
 func Load() *Config {
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+
 	return &Config{
 		Port:                     getEnv("PORT", "8080"),
 		AWSRegion:                getEnv("AWS_REGION", "ap-northeast-1"),
@@ -46,6 +49,7 @@ func Load() *Config {
 		DefaultBillingType:       getEnv("DEFAULT_BILLING_TYPE", "payg"),
 		EnableInternalCron:       getEnvAsBool("ENABLE_INTERNAL_CRON", true),
 		RateLimitRPM:             getEnvAsInt("RATE_LIMIT_RPM", 600), // デフォルト 600 req/min (0なら無制限)
+		AllowedOrigins:           allowedOrigins,
 	}
 }
 
