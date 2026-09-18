@@ -35,7 +35,7 @@ tollgate 前段なしの直接通信や後方互換用として、`Authorization
 ### 2.3 管理者マスターキー認証
 管理用 API（`/v1/admin/*`）へのアクセスには、マスターキー認証が必要。
 - ヘッダー: `X-Admin-API-Key: <ADMIN_API_KEY>` または `Authorization: Bearer <ADMIN_API_KEY>`
-- 環境変数 `ADMIN_API_KEY`（デフォルト: `sk-admin-master-key`）と照合し、不一致時は **HTTP 401 Unauthorized** を返却。
+- 環境変数 `ADMIN_API_KEY`（デフォルト: 空文字列）と照合し、不一致時や未設定時は **HTTP 401 Unauthorized** を返却（未設定時は全てのアクセスが拒否されます）。
 
 ---
 
