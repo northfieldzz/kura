@@ -39,6 +39,8 @@ services:
       - MICROSOFT_FOUNDRY_API_VERSION=${MICROSOFT_FOUNDRY_API_VERSION:-2024-02-15-preview}
       - MICROSOFT_FOUNDRY_DEFAULT_DEPLOYMENT=${MICROSOFT_FOUNDRY_DEFAULT_DEPLOYMENT:-gpt-5.4-mini}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DOCS_PATH=${DOCS_PATH:-/docs}
+      - OPENAPI_PATH=${OPENAPI_PATH:-/openapi}
     depends_on:
       - dynamodb
       - dynamodb-init

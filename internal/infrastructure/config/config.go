@@ -24,6 +24,8 @@ type Config struct {
 	DefaultBillingType       string
 	EnableInternalCron       bool
 	RateLimitRPM             int
+	DocsPath                 string
+	OpenAPIPath              string
 }
 
 // Load は環境変数から設定を安全に読み込み、デフォルト値を適用する
@@ -46,7 +48,21 @@ func Load() *Config {
 		DefaultBillingType:       getEnv("DEFAULT_BILLING_TYPE", "payg"),
 		EnableInternalCron:       getEnvAsBool("ENABLE_INTERNAL_CRON", true),
 		RateLimitRPM:             getEnvAsInt("RATE_LIMIT_RPM", 600), // デフォルト 600 req/min (0なら無制限)
+		DocsPath:                 getEnvPath("DOCS_PATH", "/docs"),          // 空文字または "none"/"off" で無効化
+		OpenAPIPath:              getEnvPath("OPENAPI_PATH", "/openapi"),    // 空文字または "none"/"off" で無効化
 	}
+}
+
+// getEnvPath は環境変数が定義されていれば空文字や指定値をそのまま採用し、未定義ならデフォルト値を返す
+func getEnvPath(key, defaultVal string) string {
+	val, ok := os.LookupEnv(key)
+	if !ok {
+		return defaultVal
+	}
+	if val == "none" || val == "off" || val == "false" {
+		return ""
+	}
+	return val
 }
 
 func getEnvAsBool(key string, defaultVal bool) bool {

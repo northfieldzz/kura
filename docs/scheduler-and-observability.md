@@ -16,7 +16,7 @@ Kura は、外部の AWS EventBridge や AWS Lambda を必要とせず、Go サ�
 | **月次締めレポート通知**<br>(`monthly_report`) | 毎月1日 00:05 (`5 0 1 * *`) | `monthly_report#<YYYY-MM>` | 30日 | 前月の全サービス・全テナントのトークン消費量・概算コストを集計し、Slack / アプリ内通知へ配信。 |
 | **クォータ残量低下アラート**<br>(`quota_alerts`) | 毎時 00分 (`0 * * * *`) | `quota_alert#<YYYY-MM-DD-HH>` | 1時間 | `capped` プランで月次予算消費率が 80% / 90% を超過したテナントを検知し、Slack / アプリ内通知へ警告配信。 |
 
-※ 管理用 API（`POST /api/v1/llm/internal/jobs/run`）から手動で即時トリガー実行することも可能。
+※ 管理用 API（`POST /v1/internal/jobs/run`）から手動で即時トリガー実行することも可能。
 
 ### 2.2 DynamoDB 条件付き書き込みによる分散ロック
 ECS などのマルチコンテナ構成（Auto Scaling）時でも、同一バッチの二重実行を防止するため、DynamoDB の `attribute_not_exists(pk)` を用いた分散ロック制御を行う。

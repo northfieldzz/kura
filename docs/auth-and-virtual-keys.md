@@ -33,7 +33,7 @@ tollgate 前段なしの直接通信や後方互換用として、`Authorization
 - どちらのヘッダーも指定されない場合、デフォルトテナント（`anonymous`）として解決される。
 
 ### 2.3 管理者マスターキー認証
-管理用 API（`/api/v1/llm/internal/*`）へのアクセスには、マスターキー認証が必要。
+管理用 API（`/v1/internal/*`）へのアクセスには、マスターキー認証が必要。
 - ヘッダー: `X-Admin-API-Key: <ADMIN_API_KEY>` または `Authorization: Bearer <ADMIN_API_KEY>`
 - 環境変数 `ADMIN_API_KEY`（デフォルト: `sk-admin-master-key`）と照合し、不一致時は **HTTP 401 Unauthorized** を返却。
 
@@ -72,10 +72,10 @@ Kura では、過度な LLM API コストの発生を防止するため、月次
 
 ### 5.1 階層構造
 1. **サービス全体上限**:
-   - `POST /api/v1/llm/internal/limits`（`tenant_id` 省略時）で設定。
+   - `POST /v1/internal/limits`（`tenant_id` 省略時）で設定。
    - サービス配下の全テナントの月次消費合計が `cost_limit` を超過した場合、即座に **HTTP 429 Too Many Requests** (`quota_exceeded`) を返却。
 2. **テナント個別上限**:
-   - `POST /api/v1/llm/internal/limits`（`tenant_id` 指定時）で設定。
+   - `POST /v1/internal/limits`（`tenant_id` 指定時）で設定。
    - サービス全体の上限に達していなくても、特定テナントの当月利用額がテナント個別の `cost_limit` を超過した場合、そのテナントのリクエストのみ **HTTP 429 Too Many Requests** (`quota_exceeded`) で遮断。
 3. **優先順位**:
    - サービス全体上限とテナント個別上限の双方が設定されている場合、**いずれか一方でも上限に達した時点でリクエストがブロック**される。

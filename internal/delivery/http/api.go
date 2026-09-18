@@ -172,21 +172,27 @@ func SetupHumaAPI(
 	handler *Handler,
 	authMiddleware *AuthMiddleware,
 	adminHandler *AdminHandler,
+	docsPath string,
+	openAPIPath string,
 	rateLimitMiddleware ...*RateLimitMiddleware,
 ) huma.API {
 	config := huma.DefaultConfig("Kura", "2.0.0")
-	config.DocsRenderer = huma.DocsRendererScalar
-	config.DocsPath = "/api/v1/llm/docs"
-	config.OpenAPIPath = "/api/v1/llm/openapi"
+	config.OpenAPIPath = openAPIPath
 	config.Info.Description = "Azure OpenAI、Anthropic Claude、Google Gemini に対応したマルチテナント向け高パフォーマンス LLM API ゲートウェイ。DynamoDB によるトークン計測・コスト算出、完全従量課金 / 上限設定プラン、仮想モデルエイリアス (fast, smart, flash)、日本データレジデンシーに対応。"
 
-	// Scalar の設定: デフォルトクライアントを Go (native) に設定
-	config.DocsRendererConfig = map[string]any{
-		"defaultHttpClient": map[string]string{
-			"targetKey": "go",
-			"clientKey": "native",
-		},
-		"theme": "purple",
+	if openAPIPath != "" && docsPath != "" {
+		config.DocsRenderer = huma.DocsRendererScalar
+		config.DocsPath = docsPath
+		// Scalar の設定: デフォルトクライアントを Go (native) に設定
+		config.DocsRendererConfig = map[string]any{
+			"defaultHttpClient": map[string]string{
+				"targetKey": "go",
+				"clientKey": "native",
+			},
+			"theme": "purple",
+		}
+	} else {
+		config.DocsPath = ""
 	}
 
 	// セキュリティスキームの登録（日本語）
@@ -214,13 +220,13 @@ func SetupHumaAPI(
 		next(ctx)
 	})
 
-	// 1. GET /api/llm/health (総合ヘルスチェック)
+	// 1. GET /health (総合ヘルスチェック)
 	huma.Register(api, huma.Operation{
 		OperationID: "health-check",
 		Method:      http.MethodGet,
-		Path:        "/api/llm/health",
+		Path:        "/health",
 		Summary:     "総合ヘルスチェック",
-		Description: "ゲートウェイの稼働状態を確認するエンドポイント（後方互換）。",
+		Description: "ゲートウェイの稼働状態を確認するエンドポイント。",
 		Tags:        []string{"システム"},
 	}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
 		out := &HealthOutput{}
@@ -229,11 +235,11 @@ func SetupHumaAPI(
 		return out, nil
 	})
 
-	// 1-1. GET /api/llm/health/live (Liveness プローブ)
+	// 1-1. GET /health/live (Liveness プローブ)
 	huma.Register(api, huma.Operation{
 		OperationID: "liveness-check",
 		Method:      http.MethodGet,
-		Path:        "/api/llm/health/live",
+		Path:        "/health/live",
 		Summary:     "Liveness プローブ (死活監視)",
 		Description: "プロセスの死活監視用エンドポイント。外部依存関係を見ず、プロセス生存時に即座に 200 を返す。",
 		Tags:        []string{"システム"},
@@ -243,11 +249,11 @@ func SetupHumaAPI(
 		return out, nil
 	})
 
-	// 1-2. GET /api/llm/health/ready (Readiness プローブ)
+	// 1-2. GET /health/ready (Readiness プローブ)
 	huma.Register(api, huma.Operation{
 		OperationID: "readiness-check",
 		Method:      http.MethodGet,
-		Path:        "/api/llm/health/ready",
+		Path:        "/health/ready",
 		Summary:     "Readiness プローブ (受入準備監視)",
 		Description: "トラフィック受入準備完了の監視用エンドポイント。Graceful Shutdown 移行時は 503 を返し、ALB 新規流入を遮断。",
 		Tags:        []string{"システム"},
@@ -258,11 +264,11 @@ func SetupHumaAPI(
 		return out, nil
 	})
 
-	// 2. POST /api/v1/llm/chat/completions (OpenAI compatible chat completion with SSE streaming)
+	// 2. POST /v1/chat/completions (OpenAI compatible chat completion with SSE streaming)
 	huma.Register(api, huma.Operation{
 		OperationID: "create-chat-completion",
 		Method:      http.MethodPost,
-		Path:        "/api/v1/llm/chat/completions",
+		Path:        "/v1/chat/completions",
 		Summary:     "チャット補完リクエストの作成",
 		Description: "OpenAI 互換のチャット補完エンドポイント。Azure OpenAI、Claude、Gemini へのリバースプロキシ中継、トークン集計、コスト算出、上限判定を実行。Server-Sent Events (SSE) によるストリーミングに対応。",
 		Tags:        []string{"サービス向け API"},
@@ -287,11 +293,11 @@ func SetupHumaAPI(
 		return nil, nil
 	})
 
-	// 3. GET /api/v1/llm/realtime (WebSocket Passthrough)
+	// 3. GET /v1/realtime (WebSocket Passthrough)
 	huma.Register(api, huma.Operation{
 		OperationID: "realtime-websocket",
 		Method:      http.MethodGet,
-		Path:        "/api/v1/llm/realtime",
+		Path:        "/v1/realtime",
 		Summary:     "Realtime WebSocket パススルー",
 		Description: "Azure OpenAI Realtime API への WebSocket 接続をパススルーし、低遅延なマルチモーダル音声・テキストストリーミングを実現。",
 		Tags:        []string{"サービス向け API"},
@@ -308,11 +314,11 @@ func SetupHumaAPI(
 		return nil, nil
 	})
 
-	// 3-1. GET /api/v1/llm/usage (キー別使用量・リアルタイム残枠確認)
+	// 3-1. GET /v1/usage (キー別使用量・リアルタイム残枠確認)
 	huma.Register(api, huma.Operation{
 		OperationID: "get-key-usage-summary",
 		Method:      http.MethodGet,
-		Path:        "/api/v1/llm/usage",
+		Path:        "/v1/usage",
 		Summary:     "当月使用量・リアルタイム残枠確認",
 		Description: "サービスまたはテナントに紐付く当月のトークン消費量、利用コスト、残り予算枠をリアルタイムに照会する。",
 		Tags:        []string{"サービス向け API"},
@@ -329,11 +335,11 @@ func SetupHumaAPI(
 		return nil, nil
 	})
 
-	// 4. GET /api/v1/llm/internal/usage
+	// 4. GET /v1/internal/usage
 	huma.Register(api, huma.Operation{
 		OperationID: "get-internal-usage",
 		Method:      http.MethodGet,
-		Path:        "/api/v1/llm/internal/usage",
+		Path:        "/v1/internal/usage",
 		Summary:     "サービス別月次利用実績の取得",
 		Description: "指定されたサービスおよび月のトークン累計消費量、推定コスト、モデル別利用内訳を取得。",
 		Tags:        []string{"内部サービス専用 API (Internal)"},
@@ -351,11 +357,11 @@ func SetupHumaAPI(
 		return &AdminUsageOutput{Body: *report}, nil
 	})
 
-	// 5. POST /api/v1/llm/internal/limits
+	// 5. POST /v1/internal/limits
 	huma.Register(api, huma.Operation{
 		OperationID: "set-internal-limits",
 		Method:      http.MethodPost,
-		Path:        "/api/v1/llm/internal/limits",
+		Path:        "/v1/internal/limits",
 		Summary:     "テナントクォータ・課金プランの設定",
 		Description: "テナントの月次トークン上限、コスト上限、および課金タイプ (payg / capped) を登録・更新。",
 		Tags:        []string{"内部サービス専用 API (Internal)"},
@@ -375,11 +381,11 @@ func SetupHumaAPI(
 		return out, nil
 	})
 
-	// 9. POST /api/v1/llm/internal/jobs/run
+	// 9. POST /v1/internal/jobs/run
 	huma.Register(api, huma.Operation{
 		OperationID: "run-internal-job",
 		Method:      http.MethodPost,
-		Path:        "/api/v1/llm/internal/jobs/run",
+		Path:        "/v1/internal/jobs/run",
 		Summary:     "バッチジョブの手動トリガー実行",
 		Description: "指定された定期バッチジョブ (monthly_settlement または quota_alert) を即時実行する。",
 		Tags:        []string{"内部サービス専用 API (Internal)"},
@@ -414,11 +420,11 @@ func SetupHumaAPI(
 		return out, nil
 	})
 
-	// 10. GET /api/v1/llm/internal/notifications
+	// 10. GET /v1/internal/notifications
 	huma.Register(api, huma.Operation{
 		OperationID: "list-internal-notifications",
 		Method:      http.MethodGet,
-		Path:        "/api/v1/llm/internal/notifications",
+		Path:        "/v1/internal/notifications",
 		Summary:     "アプリ内通知一覧の取得",
 		Description: "予算アラートや月次利用実績レポートなど、ゲートウェイ内部に蓄積された通知・お知らせ一覧を降順（最新順）で取得する。",
 		Tags:        []string{"内部サービス専用 API (Internal)"},
