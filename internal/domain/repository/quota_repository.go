@@ -29,6 +29,9 @@ type QuotaRepository interface {
 	// GetServiceConfig はサービスの永続設定 (Master レコード) を取得する
 	GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error)
 
+	// GetServiceConfigs は複数のサービスの永続設定 (Master レコード) をバッチ取得する
+	GetServiceConfigs(ctx context.Context, serviceIDs []string) (map[string]*entity.ServiceConfig, error)
+
 	// SetServiceConfig はサービスの永続設定 (Master レコード) を保存・更新する
 	SetServiceConfig(ctx context.Context, cfg *entity.ServiceConfig) error
 

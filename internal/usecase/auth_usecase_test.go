@@ -60,6 +60,10 @@ func (m *mockQuotaRepo) GetServiceMonthlyUsage(ctx context.Context, serviceID, m
 	}
 	return nil, nil
 }
+func (m *mockQuotaRepo) GetServiceConfigs(ctx context.Context, serviceIDs []string) (map[string]*entity.ServiceConfig, error) {
+	return nil, nil
+}
+
 func (m *mockQuotaRepo) GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error) {
 	return nil, nil
 }

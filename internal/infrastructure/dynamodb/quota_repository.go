@@ -179,6 +179,109 @@ func (r *dynamodbQuotaRepository) IncrementTenantUsage(
 	return nil
 }
 
+func (r *dynamodbQuotaRepository) GetServiceConfigs(ctx context.Context, serviceIDs []string) (map[string]*entity.ServiceConfig, error) {
+	if len(serviceIDs) == 0 {
+		return make(map[string]*entity.ServiceConfig), nil
+	}
+
+	result := make(map[string]*entity.ServiceConfig)
+	missingIDs := make([]string, 0)
+
+	// Unique service IDs
+	seen := make(map[string]bool)
+	uniqueIDs := make([]string, 0, len(serviceIDs))
+	for _, id := range serviceIDs {
+		if !seen[id] {
+			seen[id] = true
+			uniqueIDs = append(uniqueIDs, id)
+		}
+	}
+
+	// DynamoDB BatchGetItem allows up to 100 items per request
+	chunkSize := 100
+	for i := 0; i < len(uniqueIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(uniqueIDs) {
+			end = len(uniqueIDs)
+		}
+		chunk := uniqueIDs[i:end]
+
+		keys := make([]map[string]types.AttributeValue, 0, len(chunk))
+		for _, id := range chunk {
+			keys = append(keys, map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: entity.BuildServiceMetadataPK(id)},
+				"sk": &types.AttributeValueMemberS{Value: entity.BuildServiceMetadataSK()},
+			})
+		}
+
+		// Retry logic for unprocessed keys
+		requestItems := map[string]types.KeysAndAttributes{
+			r.tableName: {
+				Keys: keys,
+			},
+		}
+
+		maxRetries := 3
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			out, err := r.client.BatchGetItem(ctx, &dynamodb.BatchGetItemInput{
+				RequestItems: requestItems,
+			})
+
+			if err != nil {
+				log.Printf("[WARN] DynamoDB GetServiceConfigs batch error, falling back for chunk: %v", err)
+				break // Stop retrying on full error, missingIDs logic will handle fallback
+			}
+
+			if items, ok := out.Responses[r.tableName]; ok {
+				for _, item := range items {
+					var cfg entity.ServiceConfig
+					if err := attributevalue.UnmarshalMap(item, &cfg); err != nil {
+						continue
+					}
+					result[cfg.ServiceID] = &cfg
+				}
+			}
+
+			// Handle unprocessed keys
+			if unprocessed, ok := out.UnprocessedKeys[r.tableName]; ok && len(unprocessed.Keys) > 0 {
+				if attempt == maxRetries {
+					log.Printf("[WARN] DynamoDB GetServiceConfigs max retries reached for unprocessed keys")
+					break
+				}
+
+				// Update requestItems for next retry
+				requestItems = map[string]types.KeysAndAttributes{
+					r.tableName: {
+						Keys: unprocessed.Keys,
+					},
+				}
+
+				// Exponential backoff
+				time.Sleep(time.Duration(50 * (1 << attempt)) * time.Millisecond)
+			} else {
+				break // All items processed successfully
+			}
+		}
+
+		// Determine which items were not found or not processed
+		for _, id := range chunk {
+			if _, found := result[id]; !found {
+				missingIDs = append(missingIDs, id)
+			}
+		}
+	}
+
+	// Fallback to memory for missing IDs (either errors, unprocessed, or simply not found in DB)
+	if len(missingIDs) > 0 && r.fallback != nil {
+		fallbackResult, _ := r.fallback.GetServiceConfigs(ctx, missingIDs)
+		for id, cfg := range fallbackResult {
+			result[id] = cfg
+		}
+	}
+
+	return result, nil
+}
+
 func (r *dynamodbQuotaRepository) GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error) {
 	out, err := r.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(r.tableName),
@@ -690,6 +793,19 @@ func (m *memoryQuotaRepository) SetTenantConfig(ctx context.Context, cfg *entity
 	m.tenantConfigs[key] = &clone
 
 	return nil
+}
+
+func (m *memoryQuotaRepository) GetServiceConfigs(ctx context.Context, serviceIDs []string) (map[string]*entity.ServiceConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make(map[string]*entity.ServiceConfig)
+	for _, id := range serviceIDs {
+		if cfg, ok := m.serviceConfigs[id]; ok {
+			result[id] = cfg
+		}
+	}
+	return result, nil
 }
 
 func (m *memoryQuotaRepository) GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error) {

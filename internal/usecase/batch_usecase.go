@@ -144,14 +144,23 @@ func (u *batchUseCase) RunQuotaAlerts(ctx context.Context) error {
 	}
 
 	serviceCosts := make(map[string]float64)
+	var serviceIDs []string
 	for _, t := range tenants {
+		if _, exists := serviceCosts[t.ServiceID]; !exists {
+			serviceIDs = append(serviceIDs, t.ServiceID)
+		}
 		serviceCosts[t.ServiceID] += t.TotalCost
+	}
+
+	configs, err := u.repo.GetServiceConfigs(ctx, serviceIDs)
+	if err != nil {
+		log.Printf("[WARN] [CRON] Failed to get service configs: %v", err)
 	}
 
 	var alertLines []string
 	for serviceID, totalCost := range serviceCosts {
-		cfg, err := u.repo.GetServiceConfig(ctx, serviceID)
-		if err != nil || cfg == nil {
+		cfg, ok := configs[serviceID]
+		if !ok || cfg == nil {
 			continue
 		}
 		// capped プランでコスト上限値が設定されているもののみチェック
