@@ -179,6 +179,92 @@ func (r *dynamodbQuotaRepository) IncrementTenantUsage(
 	return nil
 }
 
+func (r *dynamodbQuotaRepository) GetServiceConfigs(ctx context.Context, serviceIDs []string) (map[string]*entity.ServiceConfig, error) {
+	if len(serviceIDs) == 0 {
+		return make(map[string]*entity.ServiceConfig), nil
+	}
+
+	// Deduplicate serviceIDs
+	uniqueIDs := make(map[string]bool)
+	for _, id := range serviceIDs {
+		uniqueIDs[id] = true
+	}
+	var dedupedIDs []string
+	for id := range uniqueIDs {
+		dedupedIDs = append(dedupedIDs, id)
+	}
+
+	result := make(map[string]*entity.ServiceConfig)
+
+	// BatchGetItem max is 100 items per request
+	const maxBatchSize = 100
+	for i := 0; i < len(dedupedIDs); i += maxBatchSize {
+		end := i + maxBatchSize
+		if end > len(dedupedIDs) {
+			end = len(dedupedIDs)
+		}
+		chunk := dedupedIDs[i:end]
+
+		keys := make([]map[string]types.AttributeValue, 0, len(chunk))
+		for _, id := range chunk {
+			keys = append(keys, map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: entity.BuildServiceMetadataPK(id)},
+				"sk": &types.AttributeValueMemberS{Value: entity.BuildServiceMetadataSK()},
+			})
+		}
+
+		out, err := r.client.BatchGetItem(ctx, &dynamodb.BatchGetItemInput{
+			RequestItems: map[string]types.KeysAndAttributes{
+				r.tableName: {
+					Keys: keys,
+				},
+			},
+		})
+		if err != nil {
+			log.Printf("[WARN] DynamoDB GetServiceConfigs error in batch, fallback to memory: %v", err)
+			memConfigs, _ := r.fallback.GetServiceConfigs(ctx, chunk)
+			for k, v := range memConfigs {
+				result[k] = v
+			}
+			continue
+		}
+
+		items := out.Responses[r.tableName]
+		for _, item := range items {
+			var cfg entity.ServiceConfig
+			if err := attributevalue.UnmarshalMap(item, &cfg); err == nil {
+				result[cfg.ServiceID] = &cfg
+			}
+		}
+
+		// Handle unprocessed keys robustly by falling back to memory for those specific keys
+		if len(out.UnprocessedKeys) > 0 {
+			if keysAttr, ok := out.UnprocessedKeys[r.tableName]; ok {
+				var unprocessedIDs []string
+				for _, keyMap := range keysAttr.Keys {
+					if pkAttr, pkOk := keyMap["pk"]; pkOk {
+						if pkStr, pkIsStr := pkAttr.(*types.AttributeValueMemberS); pkIsStr {
+							// pk format is "SERVICE#" + serviceID
+							if strings.HasPrefix(pkStr.Value, "SERVICE#") {
+								unprocessedIDs = append(unprocessedIDs, strings.TrimPrefix(pkStr.Value, "SERVICE#"))
+							}
+						}
+					}
+				}
+				if len(unprocessedIDs) > 0 {
+					log.Printf("[WARN] DynamoDB GetServiceConfigs had %d unprocessed keys, fallback to memory", len(unprocessedIDs))
+					memConfigs, _ := r.fallback.GetServiceConfigs(ctx, unprocessedIDs)
+					for k, v := range memConfigs {
+						result[k] = v
+					}
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
 func (r *dynamodbQuotaRepository) GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error) {
 	out, err := r.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(r.tableName),
@@ -667,6 +753,20 @@ func (m *memoryQuotaRepository) SetTenantConfig(ctx context.Context, cfg *entity
 	m.tenantConfigs[key] = &clone
 
 	return nil
+}
+
+func (m *memoryQuotaRepository) GetServiceConfigs(ctx context.Context, serviceIDs []string) (map[string]*entity.ServiceConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make(map[string]*entity.ServiceConfig)
+	for _, id := range serviceIDs {
+		if cfg, ok := m.serviceConfigs[id]; ok {
+			clone := *cfg
+			result[id] = &clone
+		}
+	}
+	return result, nil
 }
 
 func (m *memoryQuotaRepository) GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error) {
