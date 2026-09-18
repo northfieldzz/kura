@@ -129,7 +129,7 @@ nerdctl compose up -d --build
 | :--- | :--- | :--- |
 | `PORT` | サーバー待受ポート | `8080` |
 | `AWS_REGION` | AWS リージョン | `ap-northeast-1` |
-| `ADMIN_API_KEY` | 管理者用マスターキー | `sk-admin-master-key` |
+| `ADMIN_API_KEY` | 管理者用マスターキー | 空 (未設定時は全拒否) |
 | `DEFAULT_TOKEN_QUOTA` | 初期テナントの月間トークン上限 | `1000000` |
 | `RATE_LIMIT_RPM` | 1分あたりの最大リクエスト数 (0で無制限) | `600` |
 | `DYNAMODB_ENDPOINT` | DynamoDB エンドポイント (ローカル: `http://dynamodb:8000`) | 空 (AWS デフォルト) |

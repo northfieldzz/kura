@@ -41,7 +41,7 @@ func Load() *Config {
 		LogChannelBufferSize:     getEnvAsInt("LOG_CHANNEL_BUFFER_SIZE", 10000),
 		DynamoDBEndpoint:         getEnv("DYNAMODB_ENDPOINT", ""),
 		DynamoDBTableName:        getEnv("DYNAMODB_TABLE_NAME", "KuraUsage"),
-		AdminAPIKey:              getEnv("ADMIN_API_KEY", "sk-admin-master-key"),
+		AdminAPIKey:              getEnv("ADMIN_API_KEY", ""),
 		AzureOpenAIEndpointJapan: getEnv("MICROSOFT_FOUNDRY_ENDPOINT_JAPAN", getEnv("FOUNDRY_ENDPOINT_JAPAN", getEnv("AZURE_OPENAI_ENDPOINT_JAPAN", ""))),
 		DefaultBillingType:       getEnv("DEFAULT_BILLING_TYPE", "payg"),
 		EnableInternalCron:       getEnvAsBool("ENABLE_INTERNAL_CRON", true),
