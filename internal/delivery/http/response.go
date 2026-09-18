@@ -7,11 +7,22 @@ import (
 	"github.com/northfieldzz/kura/internal/domain/entity"
 )
 
-// WriteJSON は JSON レスポンスを出力する
-func WriteJSON(w http.ResponseWriter, status int, data any) {
+// RespondJSON は JSON レスポンスを返すユーティリティ
+func RespondJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(data)
+	w.WriteHeader(statusCode)
+
+	if payload != nil {
+		if err := json.NewEncoder(w).Encode(payload); err != nil {
+			// エンコード失敗時は最低限のエラーを返す
+			http.Error(w, `{"error":{"message":"Internal Server Error"}}`, http.StatusInternalServerError)
+		}
+	}
+}
+
+// WriteJSON は JSON レスポンスを出力する (互換性維持)
+func WriteJSON(w http.ResponseWriter, status int, data any) {
+	RespondJSON(w, status, data)
 }
 
 // WriteError は正規化された共通エラーレスポンスを出力する
