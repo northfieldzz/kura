@@ -357,30 +357,7 @@ func (r *dynamodbQuotaRepository) GetServiceMonthlyUsage(ctx context.Context, se
 	for _, item := range out.Items {
 		var usage entity.TenantMonthlyUsage
 		if err := attributevalue.UnmarshalMap(item, &usage); err == nil {
-			report.TotalTokens += usage.TotalTokens
-			report.TotalCostUSD += usage.TotalCost
-
-			// テナント別集計 (ショーバック・請求内訳用)
-			tID := usage.TenantID
-			if tID == "" {
-				tID = "default"
-			}
-			if _, ok := report.Tenants[tID]; !ok {
-				report.Tenants[tID] = &entity.TenantReportItem{
-					TenantID: tID,
-				}
-			}
-			report.Tenants[tID].TotalTokens += usage.TotalTokens
-			report.Tenants[tID].TotalCostUSD += usage.TotalCost
-
-			for mName, mVal := range usage.Models {
-				origName := strings.ReplaceAll(mName, "_", ".")
-				if _, ok := report.Models[origName]; !ok {
-					report.Models[origName] = &entity.ServiceReportModel{}
-				}
-				report.Models[origName].Tokens += mVal.TotalTokens
-				report.Models[origName].CostUSD += mVal.Cost
-			}
+			aggregateUsageIntoReport(report, &usage)
 		}
 	}
 
@@ -738,34 +715,38 @@ func (m *memoryQuotaRepository) GetServiceMonthlyUsage(ctx context.Context, serv
 	sk := entity.BuildSK(month)
 	for _, usage := range m.tenantUsages {
 		if usage.ServiceID == serviceID && usage.SK == sk {
-			report.TotalTokens += usage.TotalTokens
-			report.TotalCostUSD += usage.TotalCost
-
-			// テナント別集計 (ショーバック・請求内訳用)
-			tID := usage.TenantID
-			if tID == "" {
-				tID = "default"
-			}
-			if _, ok := report.Tenants[tID]; !ok {
-				report.Tenants[tID] = &entity.TenantReportItem{
-					TenantID: tID,
-				}
-			}
-			report.Tenants[tID].TotalTokens += usage.TotalTokens
-			report.Tenants[tID].TotalCostUSD += usage.TotalCost
-
-			for mName, mVal := range usage.Models {
-				origName := strings.ReplaceAll(mName, "_", ".")
-				if _, ok := report.Models[origName]; !ok {
-					report.Models[origName] = &entity.ServiceReportModel{}
-				}
-				report.Models[origName].Tokens += mVal.TotalTokens
-				report.Models[origName].CostUSD += mVal.Cost
-			}
+			aggregateUsageIntoReport(report, usage)
 		}
 	}
 
 	return report, nil
+}
+
+func aggregateUsageIntoReport(report *entity.ServiceMonthlyReport, usage *entity.TenantMonthlyUsage) {
+	report.TotalTokens += usage.TotalTokens
+	report.TotalCostUSD += usage.TotalCost
+
+	// テナント別集計 (ショーバック・請求内訳用)
+	tID := usage.TenantID
+	if tID == "" {
+		tID = "default"
+	}
+	if _, ok := report.Tenants[tID]; !ok {
+		report.Tenants[tID] = &entity.TenantReportItem{
+			TenantID: tID,
+		}
+	}
+	report.Tenants[tID].TotalTokens += usage.TotalTokens
+	report.Tenants[tID].TotalCostUSD += usage.TotalCost
+
+	for mName, mVal := range usage.Models {
+		origName := strings.ReplaceAll(mName, "_", ".")
+		if _, ok := report.Models[origName]; !ok {
+			report.Models[origName] = &entity.ServiceReportModel{}
+		}
+		report.Models[origName].Tokens += mVal.TotalTokens
+		report.Models[origName].CostUSD += mVal.Cost
+	}
 }
 
 
