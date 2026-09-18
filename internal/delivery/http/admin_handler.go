@@ -41,7 +41,7 @@ func (h *AdminHandler) UseCase() usecase.AdminUseCase {
 // VerifyKey は渡されたキー文字列が管理者キーと一致するか検証する
 func (h *AdminHandler) VerifyKey(key string) bool {
 	if h.adminAPIKey == "" {
-		return true // 未設定時は開発用として通過
+		return false // 未設定時はアクセス拒否
 	}
 	if strings.HasPrefix(key, "Bearer ") {
 		key = strings.TrimPrefix(key, "Bearer ")
@@ -52,7 +52,7 @@ func (h *AdminHandler) VerifyKey(key string) bool {
 // verifyAdminAuth は管理者キーを検証する
 func (h *AdminHandler) verifyAdminAuth(r *http.Request) bool {
 	if h.adminAPIKey == "" {
-		return true // 未設定時は開発用として通過
+		return false // 未設定時はアクセス拒否
 	}
 
 	// 1. X-Admin-API-Key ヘッダー

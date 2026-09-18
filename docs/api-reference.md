@@ -8,8 +8,14 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
 
 | ドキュメント | アクセス先 URL | 説明 |
 |---|---|---|
-| **Scalar API ドキュメント** | `http://localhost:8088/api/v1/llm/docs` | ブラウザから直接 API テストが可能なモダン ドキュメント UI |
-| **OpenAPI 3.1 仕様書 (JSON)** | `http://localhost:8088/api/v1/llm/openapi.json` | クライアント SDK 自動生成やスキーマ検証用 JSON |
+| ドキュメント | アクセス先 URL | 説明 |
+|---|---|---|
+| **Scalar API ドキュメント** | `http://localhost:8088/docs` | ブラウザから直接 API テストが可能なモダン ドキュメント UI |
+| **OpenAPI 3.1 仕様書 (JSON)** | `http://localhost:8088/openapi.json` | クライアント SDK 自動生成やスキーマ検証用 JSON |
+
+> **Note**:
+> - **Scalar ドキュメント UI**: 環境変数 `DOCS_PATH`（デフォルト: `/docs`）で配信パスの変更や無効化が可能。`DOCS_PATH=""`（空文字）または `off` / `none` に設定すると無効化される。
+> - **OpenAPI 3.1 仕様書**: 環境変数 `OPENAPI_PATH`（デフォルト: `/openapi`）でスキーマエンドポイントのパス変更や無効化が可能。`OPENAPI_PATH=""`（空文字）または `off` / `none` に設定すると OpenAPI 仕様書エンドポイントが無効化される（OpenAPI が無効化された場合は Scalar UI も連動して無効化される）。
 
 ---
 
@@ -21,18 +27,13 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
 | `/health` | `GET` | 不要 | 総合ヘルスチェック (後方互換・Readiness と同等) |
 | `/health/live` / `/livez` | `GET` | 不要 | **Liveness プローブ**: プロセス死活監視 (外部依存なし、高速 200 返却) |
 | `/health/ready` / `/readyz` | `GET` | 不要 | **Readiness プローブ**: トラフィック受入監視 (DynamoDB 疎通・Graceful Shutdown 検知) |
-| `/api/llm/health` | `GET` | 不要 | Huma v2 形式総合ヘルスチェック |
-| `/api/llm/health/live` | `GET` | 不要 | Huma v2 形式 Liveness プローブ |
-| `/api/llm/health/ready` | `GET` | 不要 | Huma v2 形式 Readiness プローブ |
 | `/metrics` | `GET` | 不要 | **Prometheus メトリクス**: リクエスト数、レイテンシー、TTFT、トークン消費量、推定コスト、429拒絶数、稼働プロセス統計 |
 
 ### 2.2 推論・中継 API (OpenAI 互換)
 | パス | メソッド | 認証 | 概要 |
 |---|:---:|:---:|---|
 | `/v1/chat/completions` | `POST` | Bearer キー | OpenAI 互換チャット補完 (非ストリーミング & SSE ストリーミング) |
-| `/api/v1/llm/chat/completions` | `POST` | Bearer キー | 同上 (Scalar / OpenAPI 公開用ルート) |
 | `/v1/realtime` | `GET` | Bearer キー | OpenAI Realtime API (WebSocket) パススルー |
-| `/api/v1/llm/realtime` | `GET` | Bearer キー | 同上 (Scalar / OpenAPI 公開用ルート) |
 
 ### 2.3 サービス・テナント向け自己照会 API
 サービス（クライアント）が自身の API キーや識別子を用いて、当月の累計消費量、予算上限、残り予算枠、許可モデル、有効期限をリアルタイムに自己照会するエンドポイント。
@@ -40,7 +41,6 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
 | パス | メソッド | 認証 | 概要 |
 |---|:---:|:---:|---|
 | `/v1/usage` | `GET` | X-Service-ID または Bearer | サービス別月次使用量・リアルタイム残枠確認 |
-| `/api/v1/llm/usage` | `GET` | X-Service-ID または Bearer | 同上 (Scalar / OpenAPI 公開用ルート) |
 
 **レスポンス例 (`200 OK`)**:
 ```json
@@ -64,17 +64,17 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
 > [!NOTE]
 > `billing_type` が `pay_as_you_go` の場合、予算上限なしのため `service_remaining_cost_usd` は `-1` が返却される。テナント個別上限が未設定の場合は `tenant_cost_limit_usd` は `0`、`tenant_remaining_cost_usd` は `-1` となる。
 
-### 2.4 管理用 API (Internal)
+### 2.4 管理用 API (Admin)
 マスター API キー（`X-Admin-API-Key` または `Authorization: Bearer <ADMIN_API_KEY>`）による認証が必要。
 
 | パス | メソッド | 概要 |
 |---|:---:|---|
-| `/api/v1/llm/internal/limits` | `POST` | サービス全体またはテナント個別の月次コスト上限 (`cost_limit`) & プラン設定 |
-| `/api/v1/llm/internal/usage` | `GET` | サービス別月次トークン消費量・概算コスト・モデル別内訳レポート取得 |
-| `/api/v1/llm/internal/jobs/run` | `POST` | 定期バッチジョブ (`monthly_report`, `quota_alerts`) の手動即時実行 |
-| `/api/v1/llm/internal/notifications` | `GET` | Gateway 内部に蓄積された通知・アラート一覧取得 |
+| `/v1/admin/limits` | `POST` | サービス全体またはテナント個別の月次コスト上限 (`cost_limit`) & プラン設定 |
+| `/v1/admin/usage` | `GET` | サービス別月次トークン消費量・概算コスト・モデル別内訳レポート取得 |
+| `/v1/admin/jobs/run` | `POST` | 定期バッチジョブ (`monthly_report`, `quota_alerts`) の手動即時実行 |
+| `/v1/admin/notifications` | `GET` | Gateway 内部に蓄積された通知・アラート一覧取得 |
 
-#### `/api/v1/llm/internal/limits` リクエスト例:
+#### `/v1/admin/limits` リクエスト例:
 ```json
 {
   "service_id": "payment-service",

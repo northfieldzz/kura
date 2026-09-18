@@ -2,7 +2,7 @@
 
 本ドキュメントは、Kura の全体仕様書のインデックスです。  
 詳細な技術仕様は、責務ごとに以下の各ドキュメントへ細分化されています。
-各エンドポイントの詳細なリクエスト/レスポンススキーマは、自動生成される **[Scalar API ドキュメント](http://localhost:8088/api/v1/llm/docs)** を参照してください。
+各エンドポイントの詳細なリクエスト/レスポンススキーマは、自動生成される **[Scalar API ドキュメント](http://localhost:8088/docs)** を参照してください。
 
 ---
 
@@ -41,6 +41,6 @@
    - 非同期構造化ロガー (`UsageLogEvent`) & 分散トレース伝播
 
 6. **[API リファレンス概要](api-reference.md)**
-   - Scalar API ドキュメント UI (`/api/v1/llm/docs`)
-   - OpenAPI 3.1 仕様書 (`/api/v1/llm/openapi.json`)
+   - Scalar API ドキュメント UI (`/docs`)
+   - OpenAPI 3.1 仕様書 (`/openapi.json`)
    - カテゴリ別エンドポイントサマリ一覧

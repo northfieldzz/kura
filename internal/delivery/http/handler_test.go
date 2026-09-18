@@ -36,6 +36,9 @@ func (m *mockQuotaRepoForHealth) GetTenantConfig(ctx context.Context, serviceID,
 func (m *mockQuotaRepoForHealth) SetTenantConfig(ctx context.Context, cfg *entity.TenantConfig) error {
 	return nil
 }
+func (m *mockQuotaRepoForHealth) GetServiceConfigs(ctx context.Context, serviceIDs []string) (map[string]*entity.ServiceConfig, error) {
+	return nil, nil
+}
 func (m *mockQuotaRepoForHealth) GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error) {
 	return nil, nil
 }

@@ -11,15 +11,15 @@ import (
 func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 	mux := http.NewServeMux()
 	// ハンドラーやミドルウェアは nil であっても OpenAPI / Docs のメタデータは生成・配信可能
-	SetupHumaAPI(mux, nil, nil, nil)
+	SetupHumaAPI(mux, nil, nil, nil, "/docs", "/openapi")
 
-	// 1. GET /api/v1/llm/openapi.json
-	reqOpenAPI := httptest.NewRequest(http.MethodGet, "/api/v1/llm/openapi.json", nil)
+	// 1. GET /openapi.json
+	reqOpenAPI := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
 	recOpenAPI := httptest.NewRecorder()
 	mux.ServeHTTP(recOpenAPI, reqOpenAPI)
 
 	if recOpenAPI.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for /api/v1/llm/openapi.json, got %d", recOpenAPI.Code)
+		t.Fatalf("expected 200 OK for /openapi.json, got %d", recOpenAPI.Code)
 	}
 
 	var openAPISpec map[string]interface{}
@@ -37,32 +37,33 @@ func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 	}
 
 	expectedPaths := []string{
-		"/api/llm/health",
-		"/api/llm/health/live",
-		"/api/llm/health/ready",
-		"/api/v1/llm/chat/completions",
-		"/api/v1/llm/realtime",
-		"/api/v1/llm/usage",
-		"/api/v1/llm/internal/usage",
-		"/api/v1/llm/internal/limits",
-		"/api/v1/llm/internal/jobs/run",
+		"/health",
+		"/health/live",
+		"/health/ready",
+		"/v1/chat/completions",
+		"/v1/realtime",
+		"/v1/usage",
+		"/v1/admin/usage",
+		"/v1/admin/limits",
+		"/v1/admin/jobs/run",
+		"/v1/admin/notifications",
 	}
 	for _, p := range expectedPaths {
 		if _, exists := paths[p]; !exists {
 			t.Errorf("expected path %s in generated openapi.json, but was missing", p)
 		}
 	}
-	if _, exists := paths["/api/v1/llm/internal/keys"]; exists {
-		t.Errorf("expected /api/v1/llm/internal/keys to be removed, but was present in openapi.json")
+	if _, exists := paths["/v1/admin/keys"]; exists {
+		t.Errorf("expected /v1/admin/keys to be removed, but was present in openapi.json")
 	}
 
-	// 2. GET /api/v1/llm/docs (Scalar Documentation)
-	reqDocs := httptest.NewRequest(http.MethodGet, "/api/v1/llm/docs", nil)
+	// 2. GET /docs (Scalar Documentation)
+	reqDocs := httptest.NewRequest(http.MethodGet, "/docs", nil)
 	recDocs := httptest.NewRecorder()
 	mux.ServeHTTP(recDocs, reqDocs)
 
 	if recDocs.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for /api/v1/llm/docs, got %d", recDocs.Code)
+		t.Fatalf("expected 200 OK for /docs, got %d", recDocs.Code)
 	}
 
 	bodyStr := recDocs.Body.String()
@@ -71,9 +72,9 @@ func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 	}
 
 	// 3. Verify Tags in Operation
-	chatPath, ok := paths["/api/v1/llm/chat/completions"].(map[string]interface{})
+	chatPath, ok := paths["/v1/chat/completions"].(map[string]interface{})
 	if !ok {
-		t.Fatalf("expected /api/v1/llm/chat/completions path")
+		t.Fatalf("expected /v1/chat/completions path")
 	}
 	postOp, ok := chatPath["post"].(map[string]interface{})
 	if !ok {
@@ -82,5 +83,81 @@ func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 	tags, ok := postOp["tags"].([]interface{})
 	if !ok || len(tags) == 0 || tags[0] != "サービス向け API" {
 		t.Errorf("expected tag 'サービス向け API', got %v", tags)
+	}
+}
+
+func TestSetupHumaAPI_DocsDisabled(t *testing.T) {
+	mux := http.NewServeMux()
+	// docsPath = "" で初期化（ドキュメント無効化、OpenAPIは有効）
+	SetupHumaAPI(mux, nil, nil, nil, "", "/openapi")
+
+	// 1. GET /docs は 404 Not Found になること
+	reqDocs := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	recDocs := httptest.NewRecorder()
+	mux.ServeHTTP(recDocs, reqDocs)
+
+	if recDocs.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found for /docs when docs disabled, got %d", recDocs.Code)
+	}
+
+	// 2. OpenAPI 仕様書自体は引き続き正常に取得できること
+	reqOpenAPI := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	recOpenAPI := httptest.NewRecorder()
+	mux.ServeHTTP(recOpenAPI, reqOpenAPI)
+
+	if recOpenAPI.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /openapi.json even when docs disabled, got %d", recOpenAPI.Code)
+	}
+}
+
+func TestSetupHumaAPI_CustomDocsPath(t *testing.T) {
+	mux := http.NewServeMux()
+	// docsPath = "/my-docs" で初期化
+	SetupHumaAPI(mux, nil, nil, nil, "/my-docs", "/openapi")
+
+	reqDocs := httptest.NewRequest(http.MethodGet, "/my-docs", nil)
+	recDocs := httptest.NewRecorder()
+	mux.ServeHTTP(recDocs, reqDocs)
+
+	if recDocs.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /my-docs when custom docs path configured, got %d", recDocs.Code)
+	}
+}
+
+func TestSetupHumaAPI_OpenAPIDisabled(t *testing.T) {
+	mux := http.NewServeMux()
+	// openAPIPath = "" で初期化（OpenAPI無効化）
+	SetupHumaAPI(mux, nil, nil, nil, "/docs", "")
+
+	// 1. GET /openapi.json は 404 Not Found になること
+	reqOpenAPI := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	recOpenAPI := httptest.NewRecorder()
+	mux.ServeHTTP(recOpenAPI, reqOpenAPI)
+
+	if recOpenAPI.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found for /openapi.json when OpenAPI disabled, got %d", recOpenAPI.Code)
+	}
+
+	// 2. OpenAPI が無効な場合は Scalar UI も自動的に無効化されること
+	reqDocs := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	recDocs := httptest.NewRecorder()
+	mux.ServeHTTP(recDocs, reqDocs)
+
+	if recDocs.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found for /docs when OpenAPI disabled, got %d", recDocs.Code)
+	}
+}
+
+func TestSetupHumaAPI_CustomOpenAPIPath(t *testing.T) {
+	mux := http.NewServeMux()
+	// openAPIPath = "/custom-openapi" で初期化
+	SetupHumaAPI(mux, nil, nil, nil, "", "/custom-openapi")
+
+	reqOpenAPI := httptest.NewRequest(http.MethodGet, "/custom-openapi.json", nil)
+	recOpenAPI := httptest.NewRecorder()
+	mux.ServeHTTP(recOpenAPI, reqOpenAPI)
+
+	if recOpenAPI.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /custom-openapi.json, got %d", recOpenAPI.Code)
 	}
 }

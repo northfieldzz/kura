@@ -77,7 +77,7 @@ kura/
 │       └── http/
 │           ├── api.go              # Huma v2 OpenAPI 3.1 & Scalar ドキュメント自動生成
 │           ├── handler.go          # HTTP ハンドラ (/health, /v1/chat/completions, /v1/realtime)
-│           ├── admin_handler.go    # 管理用 API ハンドラ (/api/v1/llm/internal/*)
+│           ├── admin_handler.go    # 管理用 API ハンドラ (/v1/admin/*)
 │           ├── middleware.go       # 認証・レート制限・コンテキスト付与ミドルウェア
 │           └── response.go         # レスポンスヘルパー
 ├── docs/                           # システム仕様書群 (細分化ドキュメント)
@@ -90,7 +90,7 @@ kura/
 
 ## 📖 仕様書・詳細ドキュメント
 
-詳細な設計仕様は [docs/](docs/SPECIFICATION.md) 配下に細分化して管理しています。各エンドポイントの入出力スキーマやコードサンプルは [Scalar API ドキュメント](http://localhost:8088/api/v1/llm/docs) を参照してください。
+詳細な設計仕様は [docs/](docs/SPECIFICATION.md) 配下に細分化して管理しています。各エンドポイントの入出力スキーマやコードサンプルは [Scalar API ドキュメント](http://localhost:8088/docs) を参照してください。
 
 - **[全体システム仕様書 (目次)](docs/SPECIFICATION.md)**
 - **[アーキテクチャ & レイヤー設計](docs/architecture.md)**: 全体構成、Standard Go Layout、データレジデンシー、未知パラメータ透過
@@ -117,8 +117,8 @@ go run ./cmd/server
 nerdctl compose up -d --build
 ```
 - **Gateway (Nginx / ローカル ELB 経由)**: `http://localhost:8088`
-- **Scalar API ドキュメント (Go サンプル付き)**: `http://localhost:8088/api/v1/llm/docs`
-- **OpenAPI 3.1 仕様書**: `http://localhost:8088/api/v1/llm/openapi.json`
+- **Scalar API ドキュメント (Go サンプル付き)**: `http://localhost:8088/docs`
+- **OpenAPI 3.1 仕様書**: `http://localhost:8088/openapi.json`
 - **統合 LLM モックサーバー**: `http://localhost:8090`
 
 ---
@@ -129,9 +129,11 @@ nerdctl compose up -d --build
 | :--- | :--- | :--- |
 | `PORT` | サーバー待受ポート | `8080` |
 | `AWS_REGION` | AWS リージョン | `ap-northeast-1` |
-| `ADMIN_API_KEY` | 管理者用マスターキー | `sk-admin-master-key` |
+| `ADMIN_API_KEY` | 管理者用マスターキー | 空 (未設定時は全拒否) |
 | `DEFAULT_TOKEN_QUOTA` | 初期テナントの月間トークン上限 | `1000000` |
 | `RATE_LIMIT_RPM` | 1分あたりの最大リクエスト数 (0で無制限) | `600` |
+| `DOCS_PATH` | Scalar API ドキュメント UI パス (空文字で無効化) | `/docs` |
+| `OPENAPI_PATH` | OpenAPI 3.1 仕様書エンドポイント パス (空文字で無効化) | `/openapi` |
 | `DYNAMODB_ENDPOINT` | DynamoDB エンドポイント (ローカル: `http://dynamodb:8000`) | 空 (AWS デフォルト) |
 | `DYNAMODB_TABLE_NAME` | DynamoDB 利用量テーブル名 | `KuraUsage` |
 | `MICROSOFT_FOUNDRY_ENDPOINT` | Microsoft Foundry ベース URL (旧 `AZURE_OPENAI_ENDPOINT`) | 空 |
@@ -165,16 +167,16 @@ curl -X POST http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-### 3. バーチャルキーの発行 (モデル制限・有効期限付き)
+### 3. テナントクォータ・課金プランの設定
 ```bash
-curl -X POST http://localhost:8080/api/v1/llm/internal/keys \
+curl -X POST http://localhost:8080/v1/admin/limits \
   -H "X-Admin-API-Key: sk-admin-master-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "service_id": "intern-project",
-    "name": "Internship Key",
-    "allowed_models": ["gpt-5.4-mini", "gemini-*", "fast"],
-    "expires_at": "2026-12-31T23:59:59Z"
+    "service_id": "payment-service",
+    "tenant_id": "tenant-corp-a",
+    "cost_limit": 50.0,
+    "billing_type": "capped"
   }'
 ```
 

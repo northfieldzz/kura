@@ -20,7 +20,7 @@ Kura の初回公式リリースです。
 - **日本データレジデンシー対応**: `X-Data-Residency: japan` ヘッダー付与時、国内限定エンドポイントへ自動ルーティング。
 
 ### 2. バーチャル API キー & セキュリティ管理
-- **社内向けバーチャルキー発行 (`/api/v1/llm/internal/keys`)**:
+- **社内向けバーチャルキー発行 (`/v1/admin/keys`)**:
   - キー単位での利用許可モデル制限 (`allowed_models`、`*` ワイルドカード対応)。
   - 有効期限 (`expires_at`) 設定。
   - 即時失効機能 (`DELETE` によるアクセス遮断)。
@@ -39,8 +39,8 @@ Kura の初回公式リリースです。
 
 ### 4. 開発者体験 (DX) & 運用基盤
 - **OpenAPI 3.1 & Scalar ドキュメント自動生成**:
-  - `/api/v1/llm/docs` (Go サンプルコード付き Scalar UI)
-  - `/api/v1/llm/openapi.json` (OpenAPI 3.1 スキーマ)
+  - `/docs` (Go サンプルコード付き Scalar UI)
+  - `/openapi.json` (OpenAPI 3.1 スキーマ)
 - **統合 LLM モックサーバー (`cmd/mock_server`)**:
   - 外部 API 契約なしでローカル開発・CI 検証が完結するスタブサーバーを内包。
 - **コンテナ最適化 & CI/CD**:

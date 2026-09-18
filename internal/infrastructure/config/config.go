@@ -25,6 +25,8 @@ type Config struct {
 	EnableInternalCron       bool
 	RateLimitRPM             int
 	AllowedOrigins           string
+	DocsPath                 string
+	OpenAPIPath              string
 }
 
 // Load は環境変数から設定を安全に読み込み、デフォルト値を適用する
@@ -44,13 +46,27 @@ func Load() *Config {
 		LogChannelBufferSize:     getEnvAsInt("LOG_CHANNEL_BUFFER_SIZE", 10000),
 		DynamoDBEndpoint:         getEnv("DYNAMODB_ENDPOINT", ""),
 		DynamoDBTableName:        getEnv("DYNAMODB_TABLE_NAME", "KuraUsage"),
-		AdminAPIKey:              getEnv("ADMIN_API_KEY", "sk-admin-master-key"),
+		AdminAPIKey:              getEnv("ADMIN_API_KEY", ""),
 		AzureOpenAIEndpointJapan: getEnv("MICROSOFT_FOUNDRY_ENDPOINT_JAPAN", getEnv("FOUNDRY_ENDPOINT_JAPAN", getEnv("AZURE_OPENAI_ENDPOINT_JAPAN", ""))),
 		DefaultBillingType:       getEnv("DEFAULT_BILLING_TYPE", "payg"),
 		EnableInternalCron:       getEnvAsBool("ENABLE_INTERNAL_CRON", true),
 		RateLimitRPM:             getEnvAsInt("RATE_LIMIT_RPM", 600), // デフォルト 600 req/min (0なら無制限)
 		AllowedOrigins:           allowedOrigins,
+		DocsPath:                 getEnvPath("DOCS_PATH", "/docs"),          // 空文字または "none"/"off" で無効化
+		OpenAPIPath:              getEnvPath("OPENAPI_PATH", "/openapi"),    // 空文字または "none"/"off" で無効化
 	}
+}
+
+// getEnvPath は環境変数が定義されていれば空文字や指定値をそのまま採用し、未定義ならデフォルト値を返す
+func getEnvPath(key, defaultVal string) string {
+	val, ok := os.LookupEnv(key)
+	if !ok {
+		return defaultVal
+	}
+	if val == "none" || val == "off" || val == "false" {
+		return ""
+	}
+	return val
 }
 
 func getEnvAsBool(key string, defaultVal bool) bool {

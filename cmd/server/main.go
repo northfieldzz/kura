@@ -72,7 +72,7 @@ func main() {
 
 	// 6. ルーティング & Huma v2 (OpenAPI 3.1 & Scalar 自動生成) 設定
 	mux := http.NewServeMux()
-	delivery.SetupHumaAPI(mux, handler, authMiddleware, adminHandler, rateLimitMiddleware)
+	delivery.SetupHumaAPI(mux, handler, authMiddleware, adminHandler, cfg.DocsPath, cfg.OpenAPIPath, rateLimitMiddleware)
 
 	// OpenAI 互換標準パスの直接ルーティング
 	standardChatHandler := authMiddleware.Wrap(rateLimitMiddleware.Wrap(handler.ChatCompletions))
