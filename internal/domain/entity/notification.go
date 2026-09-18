@@ -1,6 +1,9 @@
 package entity
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // NotificationType は通知の種別 (alert: 予算警告 / report: 月次集計レポート等)
 type NotificationType string
@@ -24,12 +27,14 @@ type Notification struct {
 	CreatedAt time.Time        `json:"created_at" dynamodbav:"created_at"`
 }
 
-// BuildNotificationPK は通知レコードの Partition Key を生成する
+// BuildNotificationPK は通知のパーティションキーを生成する
 func BuildNotificationPK() string {
-	return "NOTIFICATIONS"
+	return "NOTIFICATION#ALL"
 }
 
-// BuildNotificationSK は通知レコードの Sort Key を生成する (RFC3339Nano で時系列降順ソート可能)
+// BuildNotificationSK は通知のソートキーを生成する（降順ソート用に反転時刻）
 func BuildNotificationSK(createdAt time.Time, id string) string {
-	return "NOTIFICATION#" + createdAt.UTC().Format(time.RFC3339Nano) + "#" + id
+	// 最新が先頭に来るように 9999999999999999999 から UnixNano を引く
+	inverted := uint64(9999999999999999999) - uint64(createdAt.UnixNano())
+	return fmt.Sprintf("%019d#%s", inverted, id)
 }
