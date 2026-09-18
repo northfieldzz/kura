@@ -64,17 +64,17 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
 > [!NOTE]
 > `billing_type` が `pay_as_you_go` の場合、予算上限なしのため `service_remaining_cost_usd` は `-1` が返却される。テナント個別上限が未設定の場合は `tenant_cost_limit_usd` は `0`、`tenant_remaining_cost_usd` は `-1` となる。
 
-### 2.4 管理用 API (Internal)
+### 2.4 管理用 API (Admin)
 マスター API キー（`X-Admin-API-Key` または `Authorization: Bearer <ADMIN_API_KEY>`）による認証が必要。
 
 | パス | メソッド | 概要 |
 |---|:---:|---|
-| `/v1/internal/limits` | `POST` | サービス全体またはテナント個別の月次コスト上限 (`cost_limit`) & プラン設定 |
-| `/v1/internal/usage` | `GET` | サービス別月次トークン消費量・概算コスト・モデル別内訳レポート取得 |
-| `/v1/internal/jobs/run` | `POST` | 定期バッチジョブ (`monthly_report`, `quota_alerts`) の手動即時実行 |
-| `/v1/internal/notifications` | `GET` | Gateway 内部に蓄積された通知・アラート一覧取得 |
+| `/v1/admin/limits` | `POST` | サービス全体またはテナント個別の月次コスト上限 (`cost_limit`) & プラン設定 |
+| `/v1/admin/usage` | `GET` | サービス別月次トークン消費量・概算コスト・モデル別内訳レポート取得 |
+| `/v1/admin/jobs/run` | `POST` | 定期バッチジョブ (`monthly_report`, `quota_alerts`) の手動即時実行 |
+| `/v1/admin/notifications` | `GET` | Gateway 内部に蓄積された通知・アラート一覧取得 |
 
-#### `/v1/internal/limits` リクエスト例:
+#### `/v1/admin/limits` リクエスト例:
 ```json
 {
   "service_id": "payment-service",

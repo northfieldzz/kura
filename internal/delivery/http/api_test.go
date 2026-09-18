@@ -43,18 +43,18 @@ func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 		"/v1/chat/completions",
 		"/v1/realtime",
 		"/v1/usage",
-		"/v1/internal/usage",
-		"/v1/internal/limits",
-		"/v1/internal/jobs/run",
-		"/v1/internal/notifications",
+		"/v1/admin/usage",
+		"/v1/admin/limits",
+		"/v1/admin/jobs/run",
+		"/v1/admin/notifications",
 	}
 	for _, p := range expectedPaths {
 		if _, exists := paths[p]; !exists {
 			t.Errorf("expected path %s in generated openapi.json, but was missing", p)
 		}
 	}
-	if _, exists := paths["/v1/internal/keys"]; exists {
-		t.Errorf("expected /v1/internal/keys to be removed, but was present in openapi.json")
+	if _, exists := paths["/v1/admin/keys"]; exists {
+		t.Errorf("expected /v1/admin/keys to be removed, but was present in openapi.json")
 	}
 
 	// 2. GET /docs (Scalar Documentation)

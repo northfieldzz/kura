@@ -335,14 +335,14 @@ func SetupHumaAPI(
 		return nil, nil
 	})
 
-	// 4. GET /v1/internal/usage
+	// 4. GET /v1/admin/usage
 	huma.Register(api, huma.Operation{
-		OperationID: "get-internal-usage",
+		OperationID: "get-admin-usage",
 		Method:      http.MethodGet,
-		Path:        "/v1/internal/usage",
+		Path:        "/v1/admin/usage",
 		Summary:     "サービス別月次利用実績の取得",
 		Description: "指定されたサービスおよび月のトークン累計消費量、推定コスト、モデル別利用内訳を取得。",
-		Tags:        []string{"内部サービス専用 API (Internal)"},
+		Tags:        []string{"管理者向け API (Admin)"},
 		Security: []map[string][]string{
 			{"AdminAuth": {}},
 		},
@@ -357,14 +357,14 @@ func SetupHumaAPI(
 		return &AdminUsageOutput{Body: *report}, nil
 	})
 
-	// 5. POST /v1/internal/limits
+	// 5. POST /v1/admin/limits
 	huma.Register(api, huma.Operation{
-		OperationID: "set-internal-limits",
+		OperationID: "set-admin-limits",
 		Method:      http.MethodPost,
-		Path:        "/v1/internal/limits",
+		Path:        "/v1/admin/limits",
 		Summary:     "テナントクォータ・課金プランの設定",
 		Description: "テナントの月次トークン上限、コスト上限、および課金タイプ (payg / capped) を登録・更新。",
-		Tags:        []string{"内部サービス専用 API (Internal)"},
+		Tags:        []string{"管理者向け API (Admin)"},
 		Security: []map[string][]string{
 			{"AdminAuth": {}},
 		},
@@ -381,14 +381,14 @@ func SetupHumaAPI(
 		return out, nil
 	})
 
-	// 9. POST /v1/internal/jobs/run
+	// 9. POST /v1/admin/jobs/run
 	huma.Register(api, huma.Operation{
-		OperationID: "run-internal-job",
+		OperationID: "run-admin-job",
 		Method:      http.MethodPost,
-		Path:        "/v1/internal/jobs/run",
+		Path:        "/v1/admin/jobs/run",
 		Summary:     "バッチジョブの手動トリガー実行",
 		Description: "指定された定期バッチジョブ (monthly_settlement または quota_alert) を即時実行する。",
-		Tags:        []string{"内部サービス専用 API (Internal)"},
+		Tags:        []string{"管理者向け API (Admin)"},
 		Security: []map[string][]string{
 			{"AdminAuth": {}},
 		},
@@ -420,14 +420,14 @@ func SetupHumaAPI(
 		return out, nil
 	})
 
-	// 10. GET /v1/internal/notifications
+	// 10. GET /v1/admin/notifications
 	huma.Register(api, huma.Operation{
-		OperationID: "list-internal-notifications",
+		OperationID: "list-admin-notifications",
 		Method:      http.MethodGet,
-		Path:        "/v1/internal/notifications",
+		Path:        "/v1/admin/notifications",
 		Summary:     "アプリ内通知一覧の取得",
 		Description: "予算アラートや月次利用実績レポートなど、ゲートウェイ内部に蓄積された通知・お知らせ一覧を降順（最新順）で取得する。",
-		Tags:        []string{"内部サービス専用 API (Internal)"},
+		Tags:        []string{"管理者向け API (Admin)"},
 		Security: []map[string][]string{
 			{"AdminAuth": {}},
 		},

@@ -77,7 +77,7 @@ kura/
 │       └── http/
 │           ├── api.go              # Huma v2 OpenAPI 3.1 & Scalar ドキュメント自動生成
 │           ├── handler.go          # HTTP ハンドラ (/health, /v1/chat/completions, /v1/realtime)
-│           ├── admin_handler.go    # 管理用 API ハンドラ (/v1/internal/*)
+│           ├── admin_handler.go    # 管理用 API ハンドラ (/v1/admin/*)
 │           ├── middleware.go       # 認証・レート制限・コンテキスト付与ミドルウェア
 │           └── response.go         # レスポンスヘルパー
 ├── docs/                           # システム仕様書群 (細分化ドキュメント)
@@ -169,7 +169,7 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 
 ### 3. テナントクォータ・課金プランの設定
 ```bash
-curl -X POST http://localhost:8080/v1/internal/limits \
+curl -X POST http://localhost:8080/v1/admin/limits \
   -H "X-Admin-API-Key: sk-admin-master-key" \
   -H "Content-Type: application/json" \
   -d '{
