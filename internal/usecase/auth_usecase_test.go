@@ -217,6 +217,72 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	if resTenantSafe == nil || resTenantSafe.TenantContext.TenantID != "tenant-safe" {
 		t.Errorf("Expected successful auth for safe tenant, got: %+v", resTenantSafe)
 	}
+
+	// Case 7: Tollgate proxy headers (X-Tenant-ID, X-Key-ID, X-Key-Prefix, no X-Service-ID)
+	reqTollgate, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	reqTollgate.Header.Set("X-Tenant-ID", "tenant-corp-tollgate")
+	reqTollgate.Header.Set("X-Key-ID", "550e8400-e29b-41d4-a716-446655440000")
+	reqTollgate.Header.Set("X-Key-Prefix", "tlge-live-8f9c")
+	resTollgate, errResp := uc.AuthenticateRequest(context.Background(), reqTollgate, "")
+	if errResp != nil {
+		t.Fatalf("Unexpected error for tollgate proxy request: %v", errResp)
+	}
+	if resTollgate.TenantContext.TenantID != "tenant-corp-tollgate" {
+		t.Errorf("expected TenantID tenant-corp-tollgate, got %s", resTollgate.TenantContext.TenantID)
+	}
+	// X-Service-ID がない場合は TenantID が引き継がれる
+	if resTollgate.TenantContext.ServiceID != "tenant-corp-tollgate" {
+		t.Errorf("expected ServiceID to fallback to tenant-corp-tollgate, got %s", resTollgate.TenantContext.ServiceID)
+	}
+	if resTollgate.TenantContext.KeyID != "550e8400-e29b-41d4-a716-446655440000" {
+		t.Errorf("expected KeyID 550e8400-e29b-41d4-a716-446655440000, got %s", resTollgate.TenantContext.KeyID)
+	}
+	if resTollgate.TenantContext.KeyPrefix != "tlge-live-8f9c" {
+		t.Errorf("expected KeyPrefix tlge-live-8f9c, got %s", resTollgate.TenantContext.KeyPrefix)
+	}
+	if !resTollgate.TenantContext.IsProxied {
+		t.Errorf("expected IsProxied true for tollgate request, got false")
+	}
+
+	// Case 8: Standalone without any auth headers (fallback to defaults)
+	reqStandalone, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	resStandalone, errResp := uc.AuthenticateRequest(context.Background(), reqStandalone, "")
+	if errResp != nil {
+		t.Fatalf("Unexpected error for standalone request: %v", errResp)
+	}
+	if resStandalone.TenantContext.ServiceID != "default" || resStandalone.TenantContext.TenantID != "tenant_default" || resStandalone.TenantContext.UserID != "anonymous" {
+		t.Errorf("expected default context for standalone, got %+v", resStandalone.TenantContext)
+	}
+	if resStandalone.TenantContext.KeyID != "" || resStandalone.TenantContext.KeyPrefix != "" {
+		t.Errorf("expected empty KeyID/KeyPrefix for standalone, got key_id=%s, prefix=%s",
+			resStandalone.TenantContext.KeyID, resStandalone.TenantContext.KeyPrefix)
+	}
+	if resStandalone.TenantContext.IsProxied {
+		t.Errorf("expected IsProxied false for standalone request, got true")
+	}
+
+	// Case 9: EnforceTollgateAuth = true -> rejects standalone (missing X-Tenant-ID or X-Key-ID)
+	ucEnforced := NewAuthUseCaseWithConfig(repo, AuthUseCaseConfig{
+		EnforceTollgateAuth: true,
+		DefaultTenantID:     "tenant_default",
+	})
+	reqDenied, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	_, errDenied := ucEnforced.AuthenticateRequest(context.Background(), reqDenied, "")
+	if errDenied == nil || errDenied.Err.VendorOriginalCode != "missing_tollgate_headers" {
+		t.Errorf("expected 401 missing_tollgate_headers error when EnforceTollgateAuth=true, got: %v", errDenied)
+	}
+
+	// Case 10: EnforceTollgateAuth = true -> passes when valid Tollgate headers are provided
+	reqEnforcedPass, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	reqEnforcedPass.Header.Set("X-Tenant-ID", "tenant-corp-enforced")
+	reqEnforcedPass.Header.Set("X-Key-ID", "uuid-valid-key")
+	resEnforcedPass, errEnforcedPass := ucEnforced.AuthenticateRequest(context.Background(), reqEnforcedPass, "")
+	if errEnforcedPass != nil {
+		t.Fatalf("unexpected error for valid request when EnforceTollgateAuth=true: %v", errEnforcedPass)
+	}
+	if !resEnforcedPass.TenantContext.IsProxied || resEnforcedPass.TenantContext.TenantID != "tenant-corp-enforced" {
+		t.Errorf("expected is_proxied=true and tenant-corp-enforced, got %+v", resEnforcedPass.TenantContext)
+	}
 }
 
 func TestAuthUseCase_GetKeyUsageSummary(t *testing.T) {
