@@ -2,7 +2,6 @@ package entity
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 // StandardErrorResponse は仕様に基づいた共通正規化エラーレスポンス
@@ -20,12 +19,16 @@ type ErrorDetail struct {
 
 // Error は error インターフェースを満たすための実装
 func (e *StandardErrorResponse) Error() string {
-	return fmt.Sprintf("[%s] %s (code: %d)", e.Err.Type, e.Err.Message, e.Err.Code)
+	return e.Err.Message
 }
 
-// ToJSON は JSON バイト列に変換するヘルパー
+// ToJSON はレスポンス用の JSON にシリアライズする
 func (e *StandardErrorResponse) ToJSON() []byte {
-	b, _ := json.Marshal(e)
+	b, err := json.Marshal(e)
+	if err != nil {
+		// フォールバック
+		return []byte(`{"error":{"type":"internal_error","message":"Failed to serialize error"}}`)
+	}
 	return b
 }
 
