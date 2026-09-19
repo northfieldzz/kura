@@ -56,6 +56,7 @@ func TestLoad_CustomValues(t *testing.T) {
 	t.Setenv("ENABLE_INTERNAL_CRON", "false")
 	t.Setenv("RATE_LIMIT_RPM", "100")
 	t.Setenv("AZURE_OPENAI_ENDPOINT", "custom-endpoint")
+	t.Setenv("ADMIN_API_KEY", "custom-admin-key")
 
 	cfg := Load()
 
@@ -76,6 +77,9 @@ func TestLoad_CustomValues(t *testing.T) {
 	}
 	if cfg.AzureOpenAIEndpoint != "custom-endpoint" {
 		t.Errorf("Expected AzureOpenAIEndpoint to be custom-endpoint, got %s", cfg.AzureOpenAIEndpoint)
+	}
+	if cfg.AdminAPIKey != "custom-admin-key" {
+		t.Errorf("Expected AdminAPIKey to be custom-admin-key, got %s", cfg.AdminAPIKey)
 	}
 }
 
