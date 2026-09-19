@@ -11,6 +11,10 @@ func TestLoad_DefaultValues(t *testing.T) {
 	// Clear all env vars that might affect the test
 	clearEnv(t)
 
+	// Since we are clearing the environment, we must unset ADMIN_API_KEY explicitly
+	// in case t.Setenv overrides the effect of os.Clearenv in some Go versions/environments.
+	os.Unsetenv("ADMIN_API_KEY")
+
 	cfg := Load()
 
 	if cfg.Port != "8080" {
