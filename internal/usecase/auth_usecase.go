@@ -82,7 +82,7 @@ func (u *authUseCase) AuthenticateRequest(
 	if u.cfg.EnforceTollgateAuth && !isProxied {
 		return nil, entity.NewStandardError(
 			http.StatusUnauthorized,
-			entity.ErrorTypeAuthentication,
+			entity.ErrorTypeUnauthorized,
 			"Tollgate proxy authentication is enforced but required headers (X-Tenant-ID, X-Key-ID) are missing or empty",
 			"missing_tollgate_headers",
 		)
