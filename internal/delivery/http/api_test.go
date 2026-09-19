@@ -11,7 +11,7 @@ import (
 func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 	mux := http.NewServeMux()
 	// ハンドラーやミドルウェアは nil であっても OpenAPI / Docs のメタデータは生成・配信可能
-	SetupHumaAPI(mux, nil, nil, nil, "/docs", "/openapi")
+	SetupHumaAPI(mux, nil, nil, nil, "/docs", "/openapi", "")
 
 	// 1. GET /openapi.json
 	reqOpenAPI := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
@@ -89,7 +89,7 @@ func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 func TestSetupHumaAPI_DocsDisabled(t *testing.T) {
 	mux := http.NewServeMux()
 	// docsPath = "" で初期化（ドキュメント無効化、OpenAPIは有効）
-	SetupHumaAPI(mux, nil, nil, nil, "", "/openapi")
+	SetupHumaAPI(mux, nil, nil, nil, "", "/openapi", "")
 
 	// 1. GET /docs は 404 Not Found になること
 	reqDocs := httptest.NewRequest(http.MethodGet, "/docs", nil)
@@ -113,7 +113,7 @@ func TestSetupHumaAPI_DocsDisabled(t *testing.T) {
 func TestSetupHumaAPI_CustomDocsPath(t *testing.T) {
 	mux := http.NewServeMux()
 	// docsPath = "/my-docs" で初期化
-	SetupHumaAPI(mux, nil, nil, nil, "/my-docs", "/openapi")
+	SetupHumaAPI(mux, nil, nil, nil, "/my-docs", "/openapi", "")
 
 	reqDocs := httptest.NewRequest(http.MethodGet, "/my-docs", nil)
 	recDocs := httptest.NewRecorder()
@@ -127,7 +127,7 @@ func TestSetupHumaAPI_CustomDocsPath(t *testing.T) {
 func TestSetupHumaAPI_OpenAPIDisabled(t *testing.T) {
 	mux := http.NewServeMux()
 	// openAPIPath = "" で初期化（OpenAPI無効化）
-	SetupHumaAPI(mux, nil, nil, nil, "/docs", "")
+	SetupHumaAPI(mux, nil, nil, nil, "/docs", "", "")
 
 	// 1. GET /openapi.json は 404 Not Found になること
 	reqOpenAPI := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
@@ -151,7 +151,7 @@ func TestSetupHumaAPI_OpenAPIDisabled(t *testing.T) {
 func TestSetupHumaAPI_CustomOpenAPIPath(t *testing.T) {
 	mux := http.NewServeMux()
 	// openAPIPath = "/custom-openapi" で初期化
-	SetupHumaAPI(mux, nil, nil, nil, "", "/custom-openapi")
+	SetupHumaAPI(mux, nil, nil, nil, "", "/custom-openapi", "")
 
 	reqOpenAPI := httptest.NewRequest(http.MethodGet, "/custom-openapi.json", nil)
 	recOpenAPI := httptest.NewRecorder()

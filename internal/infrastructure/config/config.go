@@ -20,6 +20,7 @@ type Config struct {
 	DynamoDBEndpoint         string
 	DynamoDBTableName        string
 	AdminAPIKey              string
+	InternalSecret           string
 	AzureOpenAIEndpointJapan string
 	DefaultBillingType       string
 	EnableInternalCron       bool
@@ -44,6 +45,7 @@ func Load() *Config {
 		DynamoDBEndpoint:         getEnv("DYNAMODB_ENDPOINT", ""),
 		DynamoDBTableName:        getEnv("DYNAMODB_TABLE_NAME", "KuraUsage"),
 		AdminAPIKey:              getEnv("ADMIN_API_KEY", ""),
+		InternalSecret:           getEnv("INTERNAL_SECRET", ""),
 		AzureOpenAIEndpointJapan: getEnv("MICROSOFT_FOUNDRY_ENDPOINT_JAPAN", getEnv("FOUNDRY_ENDPOINT_JAPAN", getEnv("AZURE_OPENAI_ENDPOINT_JAPAN", ""))),
 		DefaultBillingType:       getEnv("DEFAULT_BILLING_TYPE", "payg"),
 		EnableInternalCron:       getEnvAsBool("ENABLE_INTERNAL_CRON", true),
