@@ -13,13 +13,26 @@ Kura 自身は各プロバイダー（Microsoft Foundry, Gemini 等）への安�
 ### 2.1 tollgate 連携ヘッダー（推奨）
 tollgate が認証後に付与するヘッダーからサービス・テナント情報を解決する。
 
-| ヘッダー | 説明 | 例 |
-|---|---|---|
-| `X-Service-ID` | 呼び出し元サービス識別子（予算クォータ単位） | `payment-service` |
-| `X-Tenant-ID` | テナント・組織識別子（省略時は ServiceID と同値） | `tenant-corp-a` |
-| `X-User-ID` | エンドユーザー識別子（監査ログ用） | `user-12345` |
+| ヘッダー | 必須性 (Tollgate) | 説明 | 例 |
+|---|---|---|---|
+| `X-Tenant-ID` | 必須 | テナント・組織識別子（データ分離・クォータ単位） | `tenant-corp-a` |
+| `X-Key-ID` | 必須 | 使用された API キーの UUID（監査ログ・キー別追跡用） | `550e8400-e29b-41d4-a716-446655440000` |
+| `X-Key-Prefix` | 必須 | API キーの先頭プレフィックス（ログ・調査用） | `tlge-live-8f9c` |
+| `X-Service-ID` | 任意 | 呼び出し元サービス識別子（省略時は `X-Tenant-ID` と同値にフォールバック） | `payment-service` |
+| `X-User-ID` | 任意 | エンドユーザー識別子（監査ログ用） | `user-12345` |
 
-### 2.2 3階層識別子 / Bearer 互換（後方互換・社内基盤連携）
+### 2.2 動作モードとスタンドアロン両立（環境変数）
+Tollgate が前段に存在しないスタンドアロン環境（ローカル開発や社内直接通信）でも透過的に動作する。
+
+| 環境変数 | 型 / デフォルト | 説明 |
+|---|---|---|
+| `ENFORCE_TOLLGATE_AUTH` | bool (`false`) | `true` の場合、Tollgate の必須ヘッダー（`X-Tenant-ID` および `X-Key-ID`）が欠落しているリクエストを `401 Unauthorized` (`missing_tollgate_headers`) で拒絶する。 |
+| `DEFAULT_TENANT_ID` | string (`tenant_default`) | スタンドアロン時にテナント識別子が未指定の場合に自動適用されるデフォルトテナント名。 |
+
+- **`is_proxied` 判定**:
+  `X-Tenant-ID` と `X-Key-ID` の双方が付与されている場合、リクエストコンテキスト (`TenantContext`) および利用ログ (`UsageLogEvent`) の `is_proxied` が `true` となる。
+
+### 2.3 3階層識別子 / Bearer 互換（後方互換・社内基盤連携）
 tollgate 前段なしの直接通信や後方互換用として、`Authorization: Bearer <TOKEN>` による解決もサポートする。
 
 ```
@@ -30,9 +43,9 @@ tollgate 前段なしの直接通信や後方互換用として、`Authorization
   - `TenantID`: 課金・クォータ単位となるテナント識別子（DynamoDB の PK）
   - `UserID`: エンドユーザー識別子（監査ログ用）
 - 単一キー（例: `tenant-alpha`）が渡された場合、キー全体を `ServiceID` および `TenantID` とみなして処理する。
-- どちらのヘッダーも指定されない場合、デフォルトテナント（`anonymous`）として解決される。
+- どちらのヘッダーも指定されない場合、デフォルトテナント（`DEFAULT_TENANT_ID`）として解決される。
 
-### 2.3 管理者マスターキー認証
+### 2.4 管理者マスターキー認証
 管理用 API（`/v1/admin/*`）へのアクセスには、マスターキー認証が必要。
 - ヘッダー: `X-Admin-API-Key: <ADMIN_API_KEY>` または `Authorization: Bearer <ADMIN_API_KEY>`
 - 環境変数 `ADMIN_API_KEY`（デフォルト: 空文字列）と照合し、不一致時や未設定時は **HTTP 401 Unauthorized** を返却（未設定時は全てのアクセスが拒否されます）。

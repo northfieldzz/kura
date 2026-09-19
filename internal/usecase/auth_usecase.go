@@ -29,13 +29,31 @@ type AuthUseCase interface {
 	GetKeyUsageSummary(ctx context.Context, tenantCtx *entity.TenantContext) (*entity.KeyUsageSummary, error)
 }
 
-type authUseCase struct {
-	repo repository.QuotaRepository
+// AuthUseCaseConfig は認証ユースケースの設定オプション
+type AuthUseCaseConfig struct {
+	EnforceTollgateAuth bool
+	DefaultTenantID     string
 }
 
-// NewAuthUseCase は AuthUseCase を生成する
+type authUseCase struct {
+	repo repository.QuotaRepository
+	cfg  AuthUseCaseConfig
+}
+
+// NewAuthUseCase はデフォルト設定で AuthUseCase を生成する（後方互換性維持）
 func NewAuthUseCase(repo repository.QuotaRepository) AuthUseCase {
-	return &authUseCase{repo: repo}
+	return NewAuthUseCaseWithConfig(repo, AuthUseCaseConfig{
+		EnforceTollgateAuth: false,
+		DefaultTenantID:     "tenant_default",
+	})
+}
+
+// NewAuthUseCaseWithConfig は指定された設定で AuthUseCase を生成する
+func NewAuthUseCaseWithConfig(repo repository.QuotaRepository, cfg AuthUseCaseConfig) AuthUseCase {
+	if cfg.DefaultTenantID == "" {
+		cfg.DefaultTenantID = "tenant_default"
+	}
+	return &authUseCase{repo: repo, cfg: cfg}
 }
 
 func (u *authUseCase) AuthenticateRequest(
@@ -50,10 +68,25 @@ func (u *authUseCase) AuthenticateRequest(
 	}
 	tenantID := r.Header.Get("X-Tenant-ID")
 	userID := r.Header.Get("X-User-ID")
+	keyID := r.Header.Get("X-Key-ID")
+	keyPrefix := r.Header.Get("X-Key-Prefix")
 	dataResidency := r.Header.Get("X-Data-Residency")
 	environment := r.Header.Get("X-Environment")
 	feature := r.Header.Get("X-Feature")
 	tagsHeader := r.Header.Get("X-Tags")
+
+	// Tollgate プロキシ経由フラグの判定 (X-Tenant-ID と X-Key-ID の両方が存在すること)
+	isProxied := tenantID != "" && keyID != ""
+
+	// Tollgate 認証強制モード時のバリデーション
+	if u.cfg.EnforceTollgateAuth && !isProxied {
+		return nil, entity.NewStandardError(
+			http.StatusUnauthorized,
+			entity.ErrorTypeAuthentication,
+			"Tollgate proxy authentication is enforced but required headers (X-Tenant-ID, X-Key-ID) are missing or empty",
+			"missing_tollgate_headers",
+		)
+	}
 
 	// Authorization ヘッダー ("Bearer <service>" または "Bearer <service:tenant:user>") からのフォールバック
 	authHeader := r.Header.Get("Authorization")
@@ -87,12 +120,17 @@ func (u *authUseCase) AuthenticateRequest(
 		}
 	}
 
+	// Tollgate 連携等で X-Service-ID が省略され X-Tenant-ID のみが指定されている場合は、ServiceID に TenantID を引き継ぐ
+	if serviceID == "" && tenantID != "" {
+		serviceID = tenantID
+	}
+
 	// デフォルト値適用
 	if serviceID == "" {
 		serviceID = "default"
 	}
 	if tenantID == "" {
-		tenantID = "default"
+		tenantID = u.cfg.DefaultTenantID
 	}
 	if userID == "" {
 		userID = "anonymous"
@@ -105,6 +143,9 @@ func (u *authUseCase) AuthenticateRequest(
 		ServiceID:     serviceID,
 		TenantID:      tenantID,
 		UserID:        userID,
+		KeyID:         keyID,
+		KeyPrefix:     keyPrefix,
+		IsProxied:     isProxied,
 		DataResidency: strings.ToLower(dataResidency),
 		Environment:   environment,
 		Feature:       feature,

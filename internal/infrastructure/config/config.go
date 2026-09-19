@@ -27,6 +27,8 @@ type Config struct {
 	RateLimitRPM             int
 	DocsPath                 string
 	OpenAPIPath              string
+	EnforceTollgateAuth      bool
+	DefaultTenantID          string
 }
 
 // Load は環境変数から設定を安全に読み込み、デフォルト値を適用する
@@ -52,6 +54,8 @@ func Load() *Config {
 		RateLimitRPM:             getEnvAsInt("RATE_LIMIT_RPM", 600), // デフォルト 600 req/min (0なら無制限)
 		DocsPath:                 getEnvPath("DOCS_PATH", "/docs"),          // 空文字または "none"/"off" で無効化
 		OpenAPIPath:              getEnvPath("OPENAPI_PATH", "/openapi"),    // 空文字または "none"/"off" で無効化
+		EnforceTollgateAuth:      getEnvAsBool("ENFORCE_TOLLGATE_AUTH", false),
+		DefaultTenantID:          getEnv("DEFAULT_TENANT_ID", "tenant_default"),
 	}
 }
 

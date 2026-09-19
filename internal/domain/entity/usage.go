@@ -10,6 +10,10 @@ type UsageLogEvent struct {
 	CompletionTokens int               `json:"completion_tokens"`
 	TotalTokens      int               `json:"total_tokens"`
 	Cost             float64           `json:"cost,omitempty"`
+	TenantID         string            `json:"tenant_id,omitempty"`
+	KeyID            string            `json:"key_id,omitempty"`
+	KeyPrefix        string            `json:"key_prefix,omitempty"`
+	IsProxied        bool              `json:"is_proxied,omitempty"`
 	Environment      string            `json:"environment,omitempty"`
 	Feature          string            `json:"feature,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`

@@ -19,6 +19,10 @@ func TestUsageLogEvent_JSON(t *testing.T) {
 			CompletionTokens: 20,
 			TotalTokens:      30,
 			Cost:             0.001,
+			TenantID:         "tenant-corp-a",
+			KeyID:            "550e8400-e29b-41d4-a716-446655440000",
+			KeyPrefix:        "tlge-live-8f9c",
+			IsProxied:        true,
 			Environment:      "prod",
 			Feature:          "chat",
 			Tags:             map[string]string{"env": "prod"},
@@ -37,6 +41,18 @@ func TestUsageLogEvent_JSON(t *testing.T) {
 
 		if unmarshaled.Cost != event.Cost {
 			t.Errorf("expected cost %v, got %v", event.Cost, unmarshaled.Cost)
+		}
+		if unmarshaled.TenantID != event.TenantID {
+			t.Errorf("expected tenant_id %v, got %v", event.TenantID, unmarshaled.TenantID)
+		}
+		if unmarshaled.KeyID != event.KeyID {
+			t.Errorf("expected key_id %v, got %v", event.KeyID, unmarshaled.KeyID)
+		}
+		if unmarshaled.KeyPrefix != event.KeyPrefix {
+			t.Errorf("expected key_prefix %v, got %v", event.KeyPrefix, unmarshaled.KeyPrefix)
+		}
+		if unmarshaled.IsProxied != event.IsProxied {
+			t.Errorf("expected is_proxied %v, got %v", event.IsProxied, unmarshaled.IsProxied)
 		}
 		if unmarshaled.Tags["env"] != event.Tags["env"] {
 			t.Errorf("expected tag %v, got %v", event.Tags["env"], unmarshaled.Tags["env"])
@@ -59,6 +75,15 @@ func TestUsageLogEvent_JSON(t *testing.T) {
 		json.Unmarshal(data, &raw)
 		if _, ok := raw["cost"]; ok {
 			t.Errorf("cost should be omitted")
+		}
+		if _, ok := raw["tenant_id"]; ok {
+			t.Errorf("tenant_id should be omitted")
+		}
+		if _, ok := raw["key_id"]; ok {
+			t.Errorf("key_id should be omitted")
+		}
+		if _, ok := raw["key_prefix"]; ok {
+			t.Errorf("key_prefix should be omitted")
 		}
 		if _, ok := raw["environment"]; ok {
 			t.Errorf("environment should be omitted")

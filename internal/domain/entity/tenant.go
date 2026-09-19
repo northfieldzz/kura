@@ -24,6 +24,9 @@ type TenantContext struct {
 	Environment   string            `json:"environment,omitempty"`
 	Feature       string            `json:"feature,omitempty"`
 	Tags          map[string]string `json:"tags,omitempty"`
+	KeyID         string            `json:"key_id,omitempty"`
+	KeyPrefix     string            `json:"key_prefix,omitempty"`
+	IsProxied     bool              `json:"is_proxied"`
 }
 
 // ValidateModelAccess は許可モデルリストと要求モデルを照合する

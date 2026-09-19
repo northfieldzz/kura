@@ -49,7 +49,10 @@ func main() {
 	realtimeProxy := websocket.NewRealtimeProxy(cfg)
 
 	// 3. ユースケース層の初期化
-	authUseCase := usecase.NewAuthUseCase(quotaRepo)
+	authUseCase := usecase.NewAuthUseCaseWithConfig(quotaRepo, usecase.AuthUseCaseConfig{
+		EnforceTollgateAuth: cfg.EnforceTollgateAuth,
+		DefaultTenantID:     cfg.DefaultTenantID,
+	})
 	adminUseCase := usecase.NewAdminUseCase(quotaRepo)
 	chatUseCase := usecase.NewChatUseCase(openAIAdapter, llmProxy)
 

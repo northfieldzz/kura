@@ -399,6 +399,10 @@ func (p *LLMProxy) recordUsage(
 			Timestamp:        time.Now().UTC(),
 		}
 		if tenantCtx != nil {
+			event.TenantID = tenantCtx.TenantID
+			event.KeyID = tenantCtx.KeyID
+			event.KeyPrefix = tenantCtx.KeyPrefix
+			event.IsProxied = tenantCtx.IsProxied
 			event.Environment = tenantCtx.Environment
 			event.Feature = tenantCtx.Feature
 			event.Tags = tenantCtx.Tags
