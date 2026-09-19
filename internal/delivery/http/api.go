@@ -146,12 +146,9 @@ type AdminListNotificationsOutput struct {
 	}
 }
 
-
-const internalSecretKey = "itcp_internal_service_secret_key_888"
-
 // verifyAdmin は管理者キーおよび内部共有シークレットの適合性を検証する
-func verifyAdmin(adminHandler *AdminHandler, adminKey, authHeader, internalSecret string) bool {
-	if internalSecret == internalSecretKey {
+func verifyAdmin(adminHandler *AdminHandler, adminKey, authHeader, internalSecret, expectedInternalSecret string) bool {
+	if expectedInternalSecret != "" && internalSecret == expectedInternalSecret {
 		return true
 	}
 	if adminHandler == nil {
@@ -174,6 +171,7 @@ func SetupHumaAPI(
 	adminHandler *AdminHandler,
 	docsPath string,
 	openAPIPath string,
+	expectedInternalSecret string,
 	rateLimitMiddleware ...*RateLimitMiddleware,
 ) huma.API {
 	config := huma.DefaultConfig("Kura", "2.0.0")
@@ -347,7 +345,7 @@ func SetupHumaAPI(
 			{"AdminAuth": {}},
 		},
 	}, func(ctx context.Context, input *AdminUsageInput) (*AdminUsageOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret) {
+		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret, expectedInternalSecret) {
 			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
 		}
 		report, err := adminHandler.UseCase().GetMonthlyUsage(ctx, input.ServiceID, input.Month)
@@ -369,7 +367,7 @@ func SetupHumaAPI(
 			{"AdminAuth": {}},
 		},
 	}, func(ctx context.Context, input *AdminLimitsInput) (*AdminLimitsOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret) {
+		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret, expectedInternalSecret) {
 			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
 		}
 		if err := adminHandler.UseCase().SetTenantLimit(ctx, &input.Body); err != nil {
@@ -393,7 +391,7 @@ func SetupHumaAPI(
 			{"AdminAuth": {}},
 		},
 	}, func(ctx context.Context, input *AdminRunJobInput) (*AdminRunJobOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret) {
+		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret, expectedInternalSecret) {
 			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
 		}
 		if adminHandler == nil || adminHandler.BatchUseCase() == nil {
@@ -432,7 +430,7 @@ func SetupHumaAPI(
 			{"AdminAuth": {}},
 		},
 	}, func(ctx context.Context, input *AdminListNotificationsInput) (*AdminListNotificationsOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret) {
+		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret, expectedInternalSecret) {
 			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
 		}
 		if adminHandler == nil || adminHandler.UseCase() == nil {
