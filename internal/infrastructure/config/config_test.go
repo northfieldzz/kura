@@ -11,8 +11,9 @@ func TestLoad_DefaultValues(t *testing.T) {
 	// Clear all env vars that might affect the test
 	clearEnv(t)
 
-	// Since we are clearing the environment, we must unset ADMIN_API_KEY explicitly
-	// in case t.Setenv overrides the effect of os.Clearenv in some Go versions/environments.
+	// In GitHub Actions, some environment variables like ADMIN_API_KEY might be persistently set
+	// by the action runners or the workflow definition itself (or previous steps).
+	// We explicitly unset known problematic keys to guarantee a clean state for default fallback tests.
 	os.Unsetenv("ADMIN_API_KEY")
 
 	cfg := Load()
