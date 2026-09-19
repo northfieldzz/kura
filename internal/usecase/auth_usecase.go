@@ -227,18 +227,33 @@ func parseTagsHeader(header string) map[string]string {
 	if header == "" {
 		return nil
 	}
-	parts := strings.Split(header, ",")
-	tags := make(map[string]string, len(parts))
-	for _, p := range parts {
-		trimmed := strings.TrimSpace(p)
-		if trimmed == "" {
+
+	// ⚡ Bolt Optimization: Use Count and manual IndexByte iteration instead of strings.Split
+	// to eliminate string slice allocations on the hot path.
+	count := strings.Count(header, ",") + 1
+	tags := make(map[string]string, count)
+
+	for len(header) > 0 {
+		var p string
+		if idx := strings.IndexByte(header, ','); idx >= 0 {
+			p = header[:idx]
+			header = header[idx+1:]
+		} else {
+			p = header
+			header = ""
+		}
+
+		p = strings.TrimSpace(p)
+		if p == "" {
 			continue
 		}
-		kv := strings.SplitN(trimmed, "=", 2)
-		if len(kv) == 2 {
-			tags[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+
+		// ⚡ Bolt Optimization: Use strings.Cut instead of strings.SplitN
+		// to avoid slice allocation for the key-value pair.
+		if key, val, found := strings.Cut(p, "="); found {
+			tags[strings.TrimSpace(key)] = strings.TrimSpace(val)
 		} else {
-			tags[trimmed] = "true"
+			tags[p] = "true"
 		}
 	}
 	return tags
