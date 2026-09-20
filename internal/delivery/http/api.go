@@ -221,21 +221,13 @@ func SetupHumaAPI(
 		next(ctx)
 	})
 
-	// 1. 総合ヘルスチェック (/health, /healthz)
+	// 1. 総合ヘルスチェック (/healthz)
 	healthHandler := func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
 		out := &HealthOutput{}
 		out.Body.Status = "ok"
 		out.Body.Database = "connected"
 		return out, nil
 	}
-	huma.Register(api, huma.Operation{
-		OperationID: "health-check",
-		Method:      http.MethodGet,
-		Path:        "/health",
-		Summary:     "総合ヘルスチェック",
-		Description: "ゲートウェイの稼働状態を確認するエンドポイント。",
-		Tags:        []string{"システム"},
-	}, healthHandler)
 	huma.Register(api, huma.Operation{
 		OperationID: "health-check-healthz",
 		Method:      http.MethodGet,
@@ -245,30 +237,22 @@ func SetupHumaAPI(
 		Tags:        []string{"システム"},
 	}, healthHandler)
 
-	// 1-1. Liveness プローブ (/health/live, /livez)
+	// 1-1. Liveness プローブ (/livez)
 	liveHandler := func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
 		out := &HealthOutput{}
 		out.Body.Status = "alive"
 		return out, nil
 	}
 	huma.Register(api, huma.Operation{
-		OperationID: "liveness-check",
-		Method:      http.MethodGet,
-		Path:        "/health/live",
-		Summary:     "Liveness プローブ (死活監視)",
-		Description: "プロセスの死活監視用エンドポイント。外部依存関係を見ず、プロセス生存時に即座に 200 を返す。",
-		Tags:        []string{"システム"},
-	}, liveHandler)
-	huma.Register(api, huma.Operation{
 		OperationID: "liveness-probe-livez",
 		Method:      http.MethodGet,
 		Path:        "/livez",
 		Summary:     "Liveness プローブ (/livez)",
-		Description: "Kubernetes 標準の Liveness プローブエンドポイント。",
+		Description: "Kubernetes 標準の Liveness プローブエンドポイント。プロセスの死活監視用エンドポイント。外部依存関係を見ず、プロセス生存時に即座に 200 を返す。",
 		Tags:        []string{"システム"},
 	}, liveHandler)
 
-	// 1-2. Readiness プローブ (/health/ready, /readyz)
+	// 1-2. Readiness プローブ (/readyz)
 	readyHandler := func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
 		out := &HealthOutput{}
 		out.Body.Status = "ready"
@@ -276,19 +260,11 @@ func SetupHumaAPI(
 		return out, nil
 	}
 	huma.Register(api, huma.Operation{
-		OperationID: "readiness-check",
-		Method:      http.MethodGet,
-		Path:        "/health/ready",
-		Summary:     "Readiness プローブ (受入準備監視)",
-		Description: "トラフィック受入準備完了の監視用エンドポイント。Graceful Shutdown 移行時は 503 を返し、ALB 新規流入を遮断。",
-		Tags:        []string{"システム"},
-	}, readyHandler)
-	huma.Register(api, huma.Operation{
 		OperationID: "readiness-probe-readyz",
 		Method:      http.MethodGet,
 		Path:        "/readyz",
 		Summary:     "Readiness プローブ (/readyz)",
-		Description: "Kubernetes 標準の Readiness プローブエンドポイント。",
+		Description: "Kubernetes 標準の Readiness プローブエンドポイント。トラフィック受入準備完了の監視用エンドポイント。Graceful Shutdown 移行時は 503 を返し、ALB 新規流入を遮断。",
 		Tags:        []string{"システム"},
 	}, readyHandler)
 

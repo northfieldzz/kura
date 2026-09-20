@@ -42,7 +42,7 @@ func (h *Handler) SetShuttingDown(val bool) {
 	h.isShuttingDown.Store(val)
 }
 
-// Liveness はプロセスの死活監視用エンドポイント (GET /health/live, GET /livez)
+// Liveness はプロセスの死活監視用エンドポイント (GET /livez)
 // 外部依存関係を見ず、プロセスが稼働中であれば常に 200 OK を返す
 func (h *Handler) Liveness(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -54,7 +54,7 @@ func (h *Handler) Liveness(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Readiness はトラフィック受付準備完了の監視用エンドポイント (GET /health/ready, GET /readyz)
+// Readiness はトラフィック受付準備完了の監視用エンドポイント (GET /readyz)
 // 1. シャットダウン移行中の場合は即座に 503 を返し、ロードバランサに新規流入を止めさせる
 // 2. DynamoDB / メモリストアの疎通を確認する
 func (h *Handler) Readiness(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +91,7 @@ func (h *Handler) Readiness(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HealthCheck は後方互換用エンドポイント (GET /health)
+// HealthCheck は総合ヘルスチェック用エンドポイント (GET /healthz)
 func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	h.Readiness(w, r)
 }

@@ -37,11 +37,8 @@ func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 	}
 
 	expectedPaths := []string{
-		"/health",
 		"/healthz",
-		"/health/live",
 		"/livez",
-		"/health/ready",
 		"/readyz",
 		"/metrics",
 		"/v1/chat/completions",
@@ -175,11 +172,8 @@ func TestSetupHumaAPI_HealthAndMetricsEndpoints(t *testing.T) {
 		expectedCode int
 		contentType  string
 	}{
-		{"/health", http.StatusOK, "application/json"},
 		{"/healthz", http.StatusOK, "application/json"},
-		{"/health/live", http.StatusOK, "application/json"},
 		{"/livez", http.StatusOK, "application/json"},
-		{"/health/ready", http.StatusOK, "application/json"},
 		{"/readyz", http.StatusOK, "application/json"},
 		{"/metrics", http.StatusOK, "text/plain"},
 	}

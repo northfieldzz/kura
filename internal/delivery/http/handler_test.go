@@ -67,7 +67,7 @@ func (m *mockQuotaRepoForHealth) Ping(ctx context.Context) error {
 func TestLivenessProbe(t *testing.T) {
 	h := delivery.NewHandler(nil, nil, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req := httptest.NewRequest(http.MethodGet, "/livez", nil)
 	rec := httptest.NewRecorder()
 
 	h.Liveness(rec, req)
@@ -89,7 +89,7 @@ func TestReadinessProbe_Normal(t *testing.T) {
 	mockRepo := &mockQuotaRepoForHealth{pingErr: nil}
 	h := delivery.NewHandler(nil, nil, mockRepo)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
 
 	h.Readiness(rec, req)
@@ -117,7 +117,7 @@ func TestReadinessProbe_ShuttingDown(t *testing.T) {
 	// シャットダウン状態へ遷移
 	h.SetShuttingDown(true)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
 
 	h.Readiness(rec, req)
@@ -139,7 +139,7 @@ func TestReadinessProbe_DatabaseError(t *testing.T) {
 	mockRepo := &mockQuotaRepoForHealth{pingErr: errors.New("dynamodb connection lost")}
 	h := delivery.NewHandler(nil, nil, mockRepo)
 
-	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
 
 	h.Readiness(rec, req)

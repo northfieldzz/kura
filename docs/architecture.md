@@ -80,7 +80,7 @@ kura/
 │   └── delivery/                   # 【プレゼンテーション層】入出力アダプター
 │       └── http/
 │           ├── api.go              # Huma v2 OpenAPI 3.1 & Scalar ドキュメント自動生成
-│           ├── handler.go          # HTTP ハンドラ (/health, /v1/chat/completions, /v1/realtime)
+│           ├── handler.go          # HTTP ハンドラ (/healthz, /livez, /readyz, /v1/chat/completions, /v1/realtime)
 │           ├── admin_handler.go    # 管理用 API ハンドラ (/v1/admin/*)
 │           ├── middleware.go       # 認証・レート制限・コンテキスト付与ミドルウェア
 │           ├── cors.go             # CORS 設定ミドルウェア

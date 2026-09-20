@@ -24,9 +24,9 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
 ### 2.1 システム & ヘルスチェック
 | パス | メソッド | 認証 | 概要 |
 |---|:---:|:---:|---|
-| `/health` | `GET` | 不要 | 総合ヘルスチェック (後方互換・Readiness と同等) |
-| `/health/live` / `/livez` | `GET` | 不要 | **Liveness プローブ**: プロセス死活監視 (外部依存なし、高速 200 返却) |
-| `/health/ready` / `/readyz` | `GET` | 不要 | **Readiness プローブ**: トラフィック受入監視 (DynamoDB 疎通・Graceful Shutdown 検知) |
+| `/healthz` | `GET` | 不要 | **総合ヘルスチェック**: ゲートウェイの稼働状態確認 |
+| `/livez` | `GET` | 不要 | **Liveness プローブ**: プロセス死活監視 (外部依存なし、高速 200 返却) |
+| `/readyz` | `GET` | 不要 | **Readiness プローブ**: トラフィック受入監視 (DynamoDB 疎通・Graceful Shutdown 検知) |
 | `/metrics` | `GET` | 不要 | **Prometheus メトリクス**: リクエスト数、レイテンシー、TTFT、トークン消費量、推定コスト、429拒絶数、稼働プロセス統計 |
 
 ### 2.2 推論・中継 API (OpenAI 互換)
