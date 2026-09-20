@@ -83,6 +83,7 @@ func main() {
 	mux.HandleFunc("/v1/realtime", authMiddleware.Wrap(handler.Realtime))
 	mux.HandleFunc("/v1/usage", authMiddleware.Wrap(handler.GetKeyUsage))
 	mux.HandleFunc("/health", handler.HealthCheck)
+	mux.HandleFunc("/healthz", handler.HealthCheck)
 	mux.HandleFunc("/health/live", handler.Liveness)
 	mux.HandleFunc("/health/ready", handler.Readiness)
 	mux.HandleFunc("/livez", handler.Liveness)

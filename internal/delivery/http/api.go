@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/northfieldzz/kura/internal/domain/entity"
 	"github.com/northfieldzz/kura/internal/usecase"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func init() {
@@ -219,7 +221,13 @@ func SetupHumaAPI(
 		next(ctx)
 	})
 
-	// 1. GET /health (総合ヘルスチェック)
+	// 1. 総合ヘルスチェック (/health, /healthz)
+	healthHandler := func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
+		out := &HealthOutput{}
+		out.Body.Status = "ok"
+		out.Body.Database = "connected"
+		return out, nil
+	}
 	huma.Register(api, huma.Operation{
 		OperationID: "health-check",
 		Method:      http.MethodGet,
@@ -227,14 +235,22 @@ func SetupHumaAPI(
 		Summary:     "総合ヘルスチェック",
 		Description: "ゲートウェイの稼働状態を確認するエンドポイント。",
 		Tags:        []string{"システム"},
-	}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
-		out := &HealthOutput{}
-		out.Body.Status = "ok"
-		out.Body.Database = "connected"
-		return out, nil
-	})
+	}, healthHandler)
+	huma.Register(api, huma.Operation{
+		OperationID: "health-check-healthz",
+		Method:      http.MethodGet,
+		Path:        "/healthz",
+		Summary:     "総合ヘルスチェック (/healthz)",
+		Description: "Kubernetes / クラウド標準の総合ヘルスチェックエンドポイント。",
+		Tags:        []string{"システム"},
+	}, healthHandler)
 
-	// 1-1. GET /health/live (Liveness プローブ)
+	// 1-1. Liveness プローブ (/health/live, /livez)
+	liveHandler := func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
+		out := &HealthOutput{}
+		out.Body.Status = "alive"
+		return out, nil
+	}
 	huma.Register(api, huma.Operation{
 		OperationID: "liveness-check",
 		Method:      http.MethodGet,
@@ -242,13 +258,23 @@ func SetupHumaAPI(
 		Summary:     "Liveness プローブ (死活監視)",
 		Description: "プロセスの死活監視用エンドポイント。外部依存関係を見ず、プロセス生存時に即座に 200 を返す。",
 		Tags:        []string{"システム"},
-	}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
-		out := &HealthOutput{}
-		out.Body.Status = "alive"
-		return out, nil
-	})
+	}, liveHandler)
+	huma.Register(api, huma.Operation{
+		OperationID: "liveness-probe-livez",
+		Method:      http.MethodGet,
+		Path:        "/livez",
+		Summary:     "Liveness プローブ (/livez)",
+		Description: "Kubernetes 標準の Liveness プローブエンドポイント。",
+		Tags:        []string{"システム"},
+	}, liveHandler)
 
-	// 1-2. GET /health/ready (Readiness プローブ)
+	// 1-2. Readiness プローブ (/health/ready, /readyz)
+	readyHandler := func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
+		out := &HealthOutput{}
+		out.Body.Status = "ready"
+		out.Body.Database = "connected"
+		return out, nil
+	}
 	huma.Register(api, huma.Operation{
 		OperationID: "readiness-check",
 		Method:      http.MethodGet,
@@ -256,11 +282,44 @@ func SetupHumaAPI(
 		Summary:     "Readiness プローブ (受入準備監視)",
 		Description: "トラフィック受入準備完了の監視用エンドポイント。Graceful Shutdown 移行時は 503 を返し、ALB 新規流入を遮断。",
 		Tags:        []string{"システム"},
-	}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
-		out := &HealthOutput{}
-		out.Body.Status = "ready"
-		out.Body.Database = "connected"
-		return out, nil
+	}, readyHandler)
+	huma.Register(api, huma.Operation{
+		OperationID: "readiness-probe-readyz",
+		Method:      http.MethodGet,
+		Path:        "/readyz",
+		Summary:     "Readiness プローブ (/readyz)",
+		Description: "Kubernetes 標準の Readiness プローブエンドポイント。",
+		Tags:        []string{"システム"},
+	}, readyHandler)
+
+	// 1-3. GET /metrics (Prometheus メトリクス照会)
+	promHandler := promhttp.Handler()
+	huma.Register(api, huma.Operation{
+		OperationID: "get-metrics",
+		Method:      http.MethodGet,
+		Path:        "/metrics",
+		Summary:     "Prometheus メトリクス照会",
+		Description: "Prometheus 形式のリアルタイムパフォーマンス・カウンタメトリクス (TTFT、トークン数、コスト等) を返却します。",
+		Tags:        []string{"システム"},
+		Responses: map[string]*huma.Response{
+			"200": {
+				Description: "Prometheus メトリクス (text/plain)",
+				Content: map[string]*huma.MediaType{
+					"text/plain": {},
+				},
+			},
+		},
+	}, func(ctx context.Context, input *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(hCtx huma.Context) {
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodGet, "/metrics", nil).WithContext(ctx)
+				promHandler.ServeHTTP(rec, req)
+
+				hCtx.SetHeader("Content-Type", rec.Header().Get("Content-Type"))
+				_, _ = hCtx.BodyWriter().Write(rec.Body.Bytes())
+			},
+		}, nil
 	})
 
 	// 2. POST /v1/chat/completions (OpenAI compatible chat completion with SSE streaming)
