@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -148,7 +149,7 @@ type AdminListNotificationsOutput struct {
 
 // verifyAdmin は管理者キーおよび内部共有シークレットの適合性を検証する
 func verifyAdmin(adminHandler *AdminHandler, adminKey, authHeader, internalSecret, expectedInternalSecret string) bool {
-	if expectedInternalSecret != "" && internalSecret == expectedInternalSecret {
+	if expectedInternalSecret != "" && subtle.ConstantTimeCompare([]byte(internalSecret), []byte(expectedInternalSecret)) == 1 {
 		return true
 	}
 	if adminHandler == nil {
