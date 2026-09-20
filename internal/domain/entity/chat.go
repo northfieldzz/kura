@@ -59,8 +59,10 @@ func (r *ChatCompletionRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// 全フィールドを map[string]any にアンマーシャルし、既知フィールド以外を ExtraFields に格納
-	var rawMap map[string]any
+	// ⚡ Bolt Optimization: Use map[string]json.RawMessage instead of map[string]any.
+	// This avoids recursively unmarshaling the entire JSON tree (especially large messages arrays)
+	// just to extract top-level unknown keys, reducing memory allocations and cpu time.
+	var rawMap map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawMap); err != nil {
 		return err
 	}
@@ -75,7 +77,11 @@ func (r *ChatCompletionRequest) UnmarshalJSON(data []byte) error {
 	r.ExtraFields = make(map[string]any)
 	for k, v := range rawMap {
 		if _, ok := knownKeys[k]; !ok {
-			r.ExtraFields[k] = v
+			var decoded any
+			// Only unmarshal the extra fields that we actually need to keep
+			if err := json.Unmarshal(v, &decoded); err == nil {
+				r.ExtraFields[k] = decoded
+			}
 		}
 	}
 
