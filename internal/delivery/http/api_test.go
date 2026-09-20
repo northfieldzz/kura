@@ -38,8 +38,12 @@ func TestSetupHumaAPI_DocsAndOpenAPI(t *testing.T) {
 
 	expectedPaths := []string{
 		"/health",
+		"/healthz",
 		"/health/live",
+		"/livez",
 		"/health/ready",
+		"/readyz",
+		"/metrics",
 		"/v1/chat/completions",
 		"/v1/realtime",
 		"/v1/usage",
@@ -161,4 +165,39 @@ func TestSetupHumaAPI_CustomOpenAPIPath(t *testing.T) {
 		t.Fatalf("expected 200 OK for /custom-openapi.json, got %d", recOpenAPI.Code)
 	}
 }
+
+func TestSetupHumaAPI_HealthAndMetricsEndpoints(t *testing.T) {
+	mux := http.NewServeMux()
+	SetupHumaAPI(mux, nil, nil, nil, "/docs", "/openapi", "")
+
+	tests := []struct {
+		path         string
+		expectedCode int
+		contentType  string
+	}{
+		{"/health", http.StatusOK, "application/json"},
+		{"/healthz", http.StatusOK, "application/json"},
+		{"/health/live", http.StatusOK, "application/json"},
+		{"/livez", http.StatusOK, "application/json"},
+		{"/health/ready", http.StatusOK, "application/json"},
+		{"/readyz", http.StatusOK, "application/json"},
+		{"/metrics", http.StatusOK, "text/plain"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != tc.expectedCode {
+				t.Errorf("path %s: expected status %d, got %d", tc.path, tc.expectedCode, rec.Code)
+			}
+			if tc.contentType != "" && !strings.Contains(rec.Header().Get("Content-Type"), tc.contentType) {
+				t.Errorf("path %s: expected content-type containing %s, got %s", tc.path, tc.contentType, rec.Header().Get("Content-Type"))
+			}
+		})
+	}
+}
+
 
