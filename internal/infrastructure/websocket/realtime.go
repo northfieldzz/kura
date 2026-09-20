@@ -182,9 +182,14 @@ func (p *RealtimeProxy) resolveUpstream(r *http.Request) (string, http.Header, e
 		apiVersion = "2024-10-01-preview"
 	}
 
+	scheme := "wss"
+	if u.Scheme == "http" || u.Scheme == "ws" {
+		scheme = "ws"
+	}
+
 	// Azure Realtime WebSocket URL:
 	// wss://<host>/openai/realtime?api-version=<apiVersion>&deployment=<deployment>
-	targetURL := fmt.Sprintf("wss://%s/openai/realtime?api-version=%s&deployment=%s", host, apiVersion, deployment)
+	targetURL := fmt.Sprintf("%s://%s/openai/realtime?api-version=%s&deployment=%s", scheme, host, apiVersion, deployment)
 
 	headers := http.Header{}
 	headers.Set("api-key", p.cfg.AzureOpenAIAPIKey)
