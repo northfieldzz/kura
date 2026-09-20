@@ -1,6 +1,7 @@
 package http
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -46,7 +47,7 @@ func (h *AdminHandler) VerifyKey(key string) bool {
 	if strings.HasPrefix(key, "Bearer ") {
 		key = strings.TrimPrefix(key, "Bearer ")
 	}
-	return key == h.adminAPIKey
+	return subtle.ConstantTimeCompare([]byte(key), []byte(h.adminAPIKey)) == 1
 }
 
 // verifyAdminAuth は管理者キーを検証する
