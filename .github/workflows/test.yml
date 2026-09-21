@@ -1,5 +1,8 @@
 name: CI / Automated Testing
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
