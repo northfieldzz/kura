@@ -133,8 +133,8 @@ func (h *AdminHandler) ListNotifications(w http.ResponseWriter, r *http.Request)
 
 	limit := 20
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if val, err := strconv.Atoi(limitStr); err == nil && val > 0 {
-			limit = val
+		if val, err := strconv.ParseInt(limitStr, 10, 32); err == nil && val > 0 {
+			limit = int(val)
 		}
 	}
 
