@@ -97,7 +97,16 @@ func (r *ChatCompletionRequest) ToMergedJSON() ([]byte, error) {
 
 	var baseMap map[string]any
 	if len(r.RawBody) > 0 {
-		if err := json.Unmarshal(r.RawBody, &baseMap); err != nil {
+		// ⚡ Bolt Optimization: Decode into map[string]json.RawMessage instead of map[string]any
+		// This preserves all unknown keys safely without deep recursive unmarshaling of massive
+		// nested properties (like chat history), significantly reducing memory allocations and CPU.
+		var rawMap map[string]json.RawMessage
+		if err := json.Unmarshal(r.RawBody, &rawMap); err == nil {
+			baseMap = make(map[string]any, len(rawMap))
+			for k, v := range rawMap {
+				baseMap[k] = v
+			}
+		} else {
 			baseMap = make(map[string]any)
 		}
 	} else {
