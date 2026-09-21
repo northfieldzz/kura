@@ -826,18 +826,17 @@ func aggregateUsageIntoReport(report *entity.ServiceMonthlyReport, usage *entity
 	report.TotalTokens += usage.TotalTokens
 	report.TotalCostUSD += usage.TotalCost
 
-	// テナント別集計 (ショーバック・請求内訳用)
-	tID := usage.TenantID
-	if tID == "" {
-		tID = "default"
-	}
-	if _, ok := report.Tenants[tID]; !ok {
-		report.Tenants[tID] = &entity.TenantReportItem{
-			TenantID: tID,
+	// テナント別集計 (ショーバック・請求内訳用: TenantID が指定されている場合のみ記録)
+	if usage.TenantID != "" {
+		tID := usage.TenantID
+		if _, ok := report.Tenants[tID]; !ok {
+			report.Tenants[tID] = &entity.TenantReportItem{
+				TenantID: tID,
+			}
 		}
+		report.Tenants[tID].TotalTokens += usage.TotalTokens
+		report.Tenants[tID].TotalCostUSD += usage.TotalCost
 	}
-	report.Tenants[tID].TotalTokens += usage.TotalTokens
-	report.Tenants[tID].TotalCostUSD += usage.TotalCost
 
 	for mName, mVal := range usage.Models {
 		origName := strings.ReplaceAll(mName, "_", ".")

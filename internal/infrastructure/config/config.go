@@ -20,7 +20,6 @@ type Config struct {
 	DynamoDBEndpoint         string
 	DynamoDBTableName        string
 	AdminAPIKey              string
-	InternalSecret           string
 	AzureOpenAIEndpointJapan string
 	DefaultBillingType       string
 	EnableInternalCron       bool
@@ -28,7 +27,6 @@ type Config struct {
 	DocsPath                 string
 	OpenAPIPath              string
 	EnforceTollgateAuth      bool
-	DefaultTenantID          string
 }
 
 // Load は環境変数から設定を安全に読み込み、デフォルト値を適用する
@@ -47,7 +45,6 @@ func Load() *Config {
 		DynamoDBEndpoint:         getEnv("DYNAMODB_ENDPOINT", ""),
 		DynamoDBTableName:        getEnv("DYNAMODB_TABLE_NAME", "KuraUsage"),
 		AdminAPIKey:              getEnv("ADMIN_API_KEY", ""),
-		InternalSecret:           getEnv("INTERNAL_SECRET", ""),
 		AzureOpenAIEndpointJapan: getEnv("MICROSOFT_FOUNDRY_ENDPOINT_JAPAN", getEnv("FOUNDRY_ENDPOINT_JAPAN", getEnv("AZURE_OPENAI_ENDPOINT_JAPAN", ""))),
 		DefaultBillingType:       getEnv("DEFAULT_BILLING_TYPE", "payg"),
 		EnableInternalCron:       getEnvAsBool("ENABLE_INTERNAL_CRON", true),
@@ -55,7 +52,6 @@ func Load() *Config {
 		DocsPath:                 getEnvPath("DOCS_PATH", "/docs"),          // 空文字または "none"/"off" で無効化
 		OpenAPIPath:              getEnvPath("OPENAPI_PATH", "/openapi"),    // 空文字または "none"/"off" で無効化
 		EnforceTollgateAuth:      getEnvAsBool("ENFORCE_TOLLGATE_AUTH", false),
-		DefaultTenantID:          getEnv("DEFAULT_TENANT_ID", "tenant_default"),
 	}
 }
 

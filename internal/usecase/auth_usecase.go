@@ -22,8 +22,8 @@ type AuthResult struct {
 
 // AuthUseCase は認証およびクォータ制御のビジネスロジックを担うインターフェース
 type AuthUseCase interface {
-	// AuthenticateRequest は HTTP リクエストからヘッダーやボディを解析し、認証およびクォータ判定を行う
-	AuthenticateRequest(ctx context.Context, r *http.Request, rawBodyUser string) (*AuthResult, *entity.StandardErrorResponse)
+	// AuthenticateRequest は HTTP リクエストヘッダーからサービス・テナント情報を解決し、クォータ判定を行う
+	AuthenticateRequest(ctx context.Context, r *http.Request) (*AuthResult, *entity.StandardErrorResponse)
 
 	// GetKeyUsageSummary は指定された TenantContext (APIキー / 3階層) の当月消費量とリアルタイム残枠サマリを取得する
 	GetKeyUsageSummary(ctx context.Context, tenantCtx *entity.TenantContext) (*entity.KeyUsageSummary, error)
@@ -32,7 +32,6 @@ type AuthUseCase interface {
 // AuthUseCaseConfig は認証ユースケースの設定オプション
 type AuthUseCaseConfig struct {
 	EnforceTollgateAuth bool
-	DefaultTenantID     string
 }
 
 type authUseCase struct {
@@ -40,28 +39,23 @@ type authUseCase struct {
 	cfg  AuthUseCaseConfig
 }
 
-// NewAuthUseCase はデフォルト設定で AuthUseCase を生成する（後方互換性維持）
+// NewAuthUseCase はデフォルト設定で AuthUseCase を生成する
 func NewAuthUseCase(repo repository.QuotaRepository) AuthUseCase {
 	return NewAuthUseCaseWithConfig(repo, AuthUseCaseConfig{
 		EnforceTollgateAuth: false,
-		DefaultTenantID:     "tenant_default",
 	})
 }
 
 // NewAuthUseCaseWithConfig は指定された設定で AuthUseCase を生成する
 func NewAuthUseCaseWithConfig(repo repository.QuotaRepository, cfg AuthUseCaseConfig) AuthUseCase {
-	if cfg.DefaultTenantID == "" {
-		cfg.DefaultTenantID = "tenant_default"
-	}
 	return &authUseCase{repo: repo, cfg: cfg}
 }
 
 func (u *authUseCase) AuthenticateRequest(
 	ctx context.Context,
 	r *http.Request,
-	rawBodyUser string,
 ) (*AuthResult, *entity.StandardErrorResponse) {
-	// 1. テナント・ユーザー・サービス識別子およびメタデータの解決
+	// 1. テナント・ユーザー・サービス識別子およびメタデータの解決 (HTTP ヘッダー)
 	serviceID := r.Header.Get("X-Service-ID")
 	if serviceID == "" {
 		serviceID = r.Header.Get("X-Consumer-ID")
@@ -75,66 +69,39 @@ func (u *authUseCase) AuthenticateRequest(
 	feature := r.Header.Get("X-Feature")
 	tagsHeader := r.Header.Get("X-Tags")
 
-	// Tollgate プロキシ経由フラグの判定 (X-Tenant-ID と X-Key-ID の両方が存在すること)
-	isProxied := tenantID != "" && keyID != ""
+	// サービス識別子の必須検証 (トレーサビリティ担保のため暗黙のフォールバックは行わず 400 で即時拒否)
+	if serviceID == "" {
+		return nil, entity.NewStandardError(
+			http.StatusBadRequest,
+			entity.ErrorTypeInvalidRequest,
+			"X-Service-ID header is required",
+			"missing_service_id",
+		)
+	}
+
+	// テナント識別子の必須検証 (トレーサビリティ担保のため暗黙のフォールバックは行わず 400 で即時拒否)
+	if tenantID == "" {
+		return nil, entity.NewStandardError(
+			http.StatusBadRequest,
+			entity.ErrorTypeInvalidRequest,
+			"X-Tenant-ID header is required",
+			"missing_tenant_id",
+		)
+	}
+
+	// Tollgate プロキシ経由フラグの判定 (APIキーID X-Key-ID が存在すること)
+	isProxied := keyID != ""
 
 	// Tollgate 認証強制モード時のバリデーション
 	if u.cfg.EnforceTollgateAuth && !isProxied {
 		return nil, entity.NewStandardError(
 			http.StatusUnauthorized,
 			entity.ErrorTypeUnauthorized,
-			"Tollgate proxy authentication is enforced but required headers (X-Tenant-ID, X-Key-ID) are missing or empty",
+			"Tollgate proxy authentication is enforced but required header (X-Key-ID) is missing or empty",
 			"missing_tollgate_headers",
 		)
 	}
 
-	// Authorization ヘッダー ("Bearer <service>" または "Bearer <service:tenant:user>") からのフォールバック
-	authHeader := r.Header.Get("Authorization")
-	if authHeader != "" {
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-			token := strings.TrimSpace(parts[1])
-			if token != "" {
-				subParts := strings.SplitN(token, ":", 3)
-				if serviceID == "" && len(subParts) >= 1 && subParts[0] != "" {
-					serviceID = subParts[0]
-				}
-				if tenantID == "" && len(subParts) >= 2 && subParts[1] != "" {
-					tenantID = subParts[1]
-				}
-				if userID == "" && len(subParts) == 3 && subParts[2] != "" {
-					userID = subParts[2]
-				}
-			}
-		}
-	}
-
-	// ボディ内 "user" フィールド (例: "tenant-123:user-456") からのフォールバック
-	if rawBodyUser != "" {
-		uParts := strings.SplitN(rawBodyUser, ":", 2)
-		if tenantID == "" && len(uParts) >= 1 && uParts[0] != "" {
-			tenantID = uParts[0]
-		}
-		if userID == "" && len(uParts) == 2 && uParts[1] != "" {
-			userID = uParts[1]
-		}
-	}
-
-	// Tollgate 連携等で X-Service-ID が省略され X-Tenant-ID のみが指定されている場合は、ServiceID に TenantID を引き継ぐ
-	if serviceID == "" && tenantID != "" {
-		serviceID = tenantID
-	}
-
-	// デフォルト値適用
-	if serviceID == "" {
-		serviceID = "default"
-	}
-	if tenantID == "" {
-		tenantID = u.cfg.DefaultTenantID
-	}
-	if userID == "" {
-		userID = "anonymous"
-	}
 	if dataResidency == "" {
 		dataResidency = "global"
 	}

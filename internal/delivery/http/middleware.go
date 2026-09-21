@@ -1,11 +1,8 @@
 package http
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -43,24 +40,8 @@ func (m *AuthMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 		}
 		w.Header().Set("X-Request-ID", requestID)
 
-		// 2. リクエストボディの "user" フィールドからのテナント抽出用（フォールバック用）
-		var rawBodyUser string
-		if r.Body != nil && r.Method == http.MethodPost {
-			bodyBytes, err := io.ReadAll(r.Body)
-			if err == nil {
-				// 読み取った Body を復元
-				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-				var partial struct {
-					User string `json:"user"`
-				}
-				_ = json.Unmarshal(bodyBytes, &partial)
-				rawBodyUser = partial.User
-			}
-		}
-
-		// 3. 認証 & クォータ超過判定
-		authResult, errResp := m.authUseCase.AuthenticateRequest(r.Context(), r, rawBodyUser)
+		// 2. 認証 & クォータ超過判定 (HTTP ヘッダーから解決)
+		authResult, errResp := m.authUseCase.AuthenticateRequest(r.Context(), r)
 		if errResp != nil {
 			WriteError(w, errResp)
 			return

@@ -51,7 +51,6 @@ func main() {
 	// 3. ユースケース層の初期化
 	authUseCase := usecase.NewAuthUseCaseWithConfig(quotaRepo, usecase.AuthUseCaseConfig{
 		EnforceTollgateAuth: cfg.EnforceTollgateAuth,
-		DefaultTenantID:     cfg.DefaultTenantID,
 	})
 	adminUseCase := usecase.NewAdminUseCase(quotaRepo)
 	chatUseCase := usecase.NewChatUseCase(openAIAdapter, llmProxy)
@@ -75,7 +74,7 @@ func main() {
 
 	// 6. ルーティング & Huma v2 (OpenAPI 3.1 & Scalar 自動生成) 設定
 	mux := http.NewServeMux()
-	delivery.SetupHumaAPI(mux, handler, authMiddleware, adminHandler, cfg.DocsPath, cfg.OpenAPIPath, cfg.InternalSecret, rateLimitMiddleware)
+	delivery.SetupHumaAPI(mux, handler, authMiddleware, adminHandler, cfg.DocsPath, cfg.OpenAPIPath, rateLimitMiddleware)
 
 	// OpenAI 互換標準パスの直接ルーティング
 	standardChatHandler := authMiddleware.Wrap(rateLimitMiddleware.Wrap(handler.ChatCompletions))

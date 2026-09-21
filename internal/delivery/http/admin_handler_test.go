@@ -85,14 +85,6 @@ func TestAdminHandler_VerifyKey(t *testing.T) {
 func TestAdminHandler_verifyAdminAuth(t *testing.T) {
 	h := NewAdminHandler(nil, nil, "secret123")
 
-	t.Run("valid X-Admin-API-Key", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("X-Admin-API-Key", "secret123")
-		if !h.verifyAdminAuth(req) {
-			t.Errorf("Expected valid with X-Admin-API-Key header")
-		}
-	})
-
 	t.Run("valid Authorization header", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("Authorization", "Bearer secret123")
@@ -110,7 +102,7 @@ func TestAdminHandler_verifyAdminAuth(t *testing.T) {
 
 	t.Run("wrong key", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("X-Admin-API-Key", "wrong")
+		req.Header.Set("Authorization", "Bearer wrong")
 		if h.verifyAdminAuth(req) {
 			t.Errorf("Expected invalid with wrong key")
 		}
@@ -119,7 +111,7 @@ func TestAdminHandler_verifyAdminAuth(t *testing.T) {
 	t.Run("no api key set", func(t *testing.T) {
 		hEmpty := NewAdminHandler(nil, nil, "")
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("X-Admin-API-Key", "secret123")
+		req.Header.Set("Authorization", "Bearer secret123")
 		if hEmpty.verifyAdminAuth(req) {
 			t.Errorf("Expected invalid when API key is not set")
 		}
@@ -160,7 +152,7 @@ func TestAdminHandler_GetUsage(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/admin/usage?service_id=test-svc&month=2023-10", nil)
-		req.Header.Set("X-Admin-API-Key", "secret123")
+		req.Header.Set("Authorization", "Bearer secret123")
 		rec := httptest.NewRecorder()
 		h.GetUsage(rec, req)
 
@@ -178,7 +170,7 @@ func TestAdminHandler_GetUsage(t *testing.T) {
 
 	t.Run("usecase error", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/admin/usage?service_id=err-svc", nil)
-		req.Header.Set("X-Admin-API-Key", "secret123")
+		req.Header.Set("Authorization", "Bearer secret123")
 		rec := httptest.NewRecorder()
 		h.GetUsage(rec, req)
 		if rec.Code != http.StatusBadRequest {
@@ -218,7 +210,7 @@ func TestAdminHandler_SetLimits(t *testing.T) {
 
 	t.Run("invalid json", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/admin/limits", bytes.NewBufferString("{invalid"))
-		req.Header.Set("X-Admin-API-Key", "secret123")
+		req.Header.Set("Authorization", "Bearer secret123")
 		rec := httptest.NewRecorder()
 		h.SetLimits(rec, req)
 		if rec.Code != http.StatusBadRequest {
@@ -229,7 +221,7 @@ func TestAdminHandler_SetLimits(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		reqBody := `{"service_id": "test-svc", "cost_limit": 100}`
 		req := httptest.NewRequest(http.MethodPost, "/v1/admin/limits", bytes.NewBufferString(reqBody))
-		req.Header.Set("X-Admin-API-Key", "secret123")
+		req.Header.Set("Authorization", "Bearer secret123")
 		rec := httptest.NewRecorder()
 		h.SetLimits(rec, req)
 
@@ -248,7 +240,7 @@ func TestAdminHandler_SetLimits(t *testing.T) {
 	t.Run("usecase error", func(t *testing.T) {
 		reqBody := `{"service_id": "err-svc"}`
 		req := httptest.NewRequest(http.MethodPost, "/v1/admin/limits", bytes.NewBufferString(reqBody))
-		req.Header.Set("X-Admin-API-Key", "secret123")
+		req.Header.Set("Authorization", "Bearer secret123")
 		rec := httptest.NewRecorder()
 		h.SetLimits(rec, req)
 		if rec.Code != http.StatusBadRequest {
@@ -281,7 +273,7 @@ func TestAdminHandler_ListNotifications(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/admin/notifications?limit=10", nil)
-		req.Header.Set("X-Admin-API-Key", "secret123")
+		req.Header.Set("Authorization", "Bearer secret123")
 		rec := httptest.NewRecorder()
 		h.ListNotifications(rec, req)
 
@@ -300,7 +292,7 @@ func TestAdminHandler_ListNotifications(t *testing.T) {
 
 	t.Run("invalid limit format ignored", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/admin/notifications?limit=invalid", nil)
-		req.Header.Set("X-Admin-API-Key", "secret123")
+		req.Header.Set("Authorization", "Bearer secret123")
 		rec := httptest.NewRecorder()
 		h.ListNotifications(rec, req)
 
@@ -311,7 +303,7 @@ func TestAdminHandler_ListNotifications(t *testing.T) {
 
 	t.Run("usecase error", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/admin/notifications?limit=999", nil)
-		req.Header.Set("X-Admin-API-Key", "secret123")
+		req.Header.Set("Authorization", "Bearer secret123")
 		rec := httptest.NewRecorder()
 		h.ListNotifications(rec, req)
 		if rec.Code != http.StatusBadRequest {

@@ -162,7 +162,7 @@ type mockAuthUseCaseForUsage struct {
 	err     error
 }
 
-func (m *mockAuthUseCaseForUsage) AuthenticateRequest(ctx context.Context, req *http.Request, rawBody string) (*usecase.AuthResult, *entity.StandardErrorResponse) {
+func (m *mockAuthUseCaseForUsage) AuthenticateRequest(ctx context.Context, req *http.Request) (*usecase.AuthResult, *entity.StandardErrorResponse) {
 	return nil, nil
 }
 func (m *mockAuthUseCaseForUsage) GetKeyUsageSummary(ctx context.Context, tenantCtx *entity.TenantContext) (*entity.KeyUsageSummary, error) {

@@ -184,9 +184,10 @@ func TestMemoryQuotaRepository_LimitsAndUsage(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Increment Usage
+	// Increment Usage (with 2 named tenants and 1 empty tenant)
 	_ = repo.IncrementTenantUsage(ctx, serviceID, tenantID1, month, "gpt-4", 10, 5, 0.1)
 	_ = repo.IncrementTenantUsage(ctx, serviceID, tenantID2, month, "gpt-3.5", 20, 10, 0.05)
+	_ = repo.IncrementTenantUsage(ctx, serviceID, "", month, "gpt-4", 10, 5, 0.05) // テナント未指定
 
 	// GetServiceMonthlyUsage
 	report, err := repo.GetServiceMonthlyUsage(ctx, serviceID, month)
@@ -196,17 +197,21 @@ func TestMemoryQuotaRepository_LimitsAndUsage(t *testing.T) {
 	if report == nil {
 		t.Fatalf("expected report to not be nil")
 	}
-	if report.TotalTokens != 45 {
-		t.Fatalf("expected 45 total tokens, got %d", report.TotalTokens)
+	if report.TotalTokens != 60 {
+		t.Fatalf("expected 60 total tokens, got %d", report.TotalTokens)
 	}
-	if report.TotalCostUSD < 0.149 || report.TotalCostUSD > 0.151 {
-		t.Fatalf("expected 0.15 total cost, got %f", report.TotalCostUSD)
+	if report.TotalCostUSD < 0.199 || report.TotalCostUSD > 0.201 {
+		t.Fatalf("expected 0.20 total cost, got %f", report.TotalCostUSD)
 	}
 	if report.CostLimit != 1000.0 {
 		t.Fatalf("expected service cost limit 1000.0, got %f", report.CostLimit)
 	}
+	// テナント未指定の利用はサービス合計に計上され、report.Tenants には "default" 等のフォールバックで混入しない
 	if len(report.Tenants) != 2 {
-		t.Fatalf("expected 2 tenants in report, got %d", len(report.Tenants))
+		t.Fatalf("expected 2 named tenants in report, got %d", len(report.Tenants))
+	}
+	if _, hasDefault := report.Tenants["default"]; hasDefault {
+		t.Fatalf("report.Tenants should not have 'default' entry for omitted tenantID")
 	}
 	if len(report.Models) != 2 {
 		t.Fatalf("expected 2 models in report, got %d", len(report.Models))
@@ -217,8 +222,8 @@ func TestMemoryQuotaRepository_LimitsAndUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(usages) != 2 {
-		t.Fatalf("expected 2 tenant usages, got %d", len(usages))
+	if len(usages) != 3 {
+		t.Fatalf("expected 3 tenant usages (including empty tenant), got %d", len(usages))
 	}
 }
 

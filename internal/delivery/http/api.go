@@ -3,7 +3,6 @@ package http
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -38,7 +37,11 @@ type HealthOutput struct {
 
 // ChatCompletionInput はチャット補完リクエスト型
 type ChatCompletionInput struct {
-	Authorization string                       `header:"Authorization" doc:"Bearer トークン (service:tenant:user または APIキー)" required:"true" example:"Bearer my-app:team-alpha:user-01"`
+	ServiceID     string                       `header:"X-Service-ID" doc:"呼び出し元サービス識別子" required:"true" example:"payment-service"`
+	TenantID      string                       `header:"X-Tenant-ID" doc:"テナント・組織識別子" required:"true" example:"tenant-corp-a"`
+	KeyID         string                       `header:"X-Key-ID" doc:"Tollgate API キー UUID" example:"550e8400-e29b-41d4-a716-446655440000"`
+	KeyPrefix     string                       `header:"X-Key-Prefix" doc:"Tollgate API キー プレフィックス" example:"tlge-live-8f9c"`
+	UserID        string                       `header:"X-User-ID" doc:"エンドユーザー識別子" example:"user-12345"`
 	DataResidency string                       `header:"X-Data-Residency" doc:"日本国内リージョンルーティング ('japan' 指定時は東日本リージョン限定)" enum:"japan"`
 	Environment   string                       `header:"X-Environment" doc:"実行環境識別子 (例: production, staging, dev)" example:"staging"`
 	Feature       string                       `header:"X-Feature" doc:"機能・ユースケース識別子 (例: rag-search, summarize)" example:"rag-search"`
@@ -63,7 +66,8 @@ type ChatCompletionOutput struct {
 
 // RealtimeInput は Realtime WebSocket 接続型
 type RealtimeInput struct {
-	Authorization string `header:"Authorization" doc:"WebSocket 接続用 Bearer トークン" required:"true" example:"Bearer my-app:team-alpha:user-01"`
+	ServiceID string `header:"X-Service-ID" doc:"呼び出し元サービス識別子" required:"true" example:"payment-service"`
+	TenantID  string `header:"X-Tenant-ID" doc:"テナント・組織識別子" required:"true" example:"tenant-corp-a"`
 }
 
 // RealtimeOutput は Realtime WebSocket 接続レスポンス型
@@ -76,7 +80,8 @@ type RealtimeOutput struct {
 
 // KeyUsageInput はキー別残枠確認リクエスト型
 type KeyUsageInput struct {
-	Authorization string `header:"Authorization" doc:"Bearer トークン (APIキー または service:tenant:user)" required:"true" example:"Bearer my-app:team-alpha:user-01"`
+	ServiceID string `header:"X-Service-ID" doc:"呼び出し元サービス識別子" required:"true" example:"payment-service"`
+	TenantID  string `header:"X-Tenant-ID" doc:"テナント・組織識別子" required:"true" example:"tenant-corp-a"`
 }
 
 // KeyUsageOutput はキー別残枠確認レスポンス型
@@ -86,11 +91,9 @@ type KeyUsageOutput struct {
 
 // AdminUsageInput は管理者向け利用実績取得入力型
 type AdminUsageInput struct {
-	AdminKey       string `header:"X-Admin-API-Key" doc:"管理者用マスター API キー (または Authorization: Bearer)" example:"sk-admin-master-key"`
-	Authorization  string `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
-	InternalSecret string `header:"X-Internal-Secret" doc:"内部サービス専用シークレット"`
-	ServiceID      string `query:"service_id" doc:"集計対象のサービス識別子" required:"true" example:"demo-service"`
-	Month          string `query:"month" doc:"対象月 (YYYY-MM形式、省略時は当月)" example:"2026-09"`
+	Authorization string `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
+	ServiceID     string `query:"service_id" doc:"集計対象のサービス識別子" required:"true" example:"demo-service"`
+	Month         string `query:"month" doc:"対象月 (YYYY-MM形式、省略時は当月)" example:"2026-09"`
 }
 
 // AdminUsageOutput は管理者向け利用実績取得出力型
@@ -100,10 +103,8 @@ type AdminUsageOutput struct {
 
 // AdminLimitsInput は管理者向けリミット設定入力型
 type AdminLimitsInput struct {
-	AdminKey       string                  `header:"X-Admin-API-Key" doc:"管理者用マスター API キー (または Authorization: Bearer)" example:"sk-admin-master-key"`
-	Authorization  string                  `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
-	InternalSecret string                  `header:"X-Internal-Secret" doc:"内部サービス専用シークレット"`
-	Body           usecase.SetLimitRequest `doc:"テナントクォータおよび課金プラン設定ペイロード"`
+	Authorization string                  `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
+	Body          usecase.SetLimitRequest `doc:"テナントクォータおよび課金プラン設定ペイロード"`
 }
 
 // AdminLimitsOutput は管理者向けリミット設定出力型
@@ -114,14 +115,10 @@ type AdminLimitsOutput struct {
 	}
 }
 
-
-
 // AdminRunJobInput はバッチジョブ手動実行入力型
 type AdminRunJobInput struct {
-	AdminKey       string `header:"X-Admin-API-Key" doc:"管理者用マスター API キー (または Authorization: Bearer)" example:"sk-admin-master-key"`
-	Authorization  string `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
-	InternalSecret string `header:"X-Internal-Secret" doc:"内部サービス専用シークレット"`
-	Body           struct {
+	Authorization string `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
+	Body          struct {
 		JobName string `json:"job_name" required:"true" doc:"実行するジョブ名 (monthly_settlement または quota_alert)" example:"monthly_settlement"`
 	}
 }
@@ -136,10 +133,8 @@ type AdminRunJobOutput struct {
 
 // AdminListNotificationsInput は管理者向けアプリ内通知一覧取得入力型
 type AdminListNotificationsInput struct {
-	AdminKey       string `header:"X-Admin-API-Key" doc:"管理者用マスター API キー (または Authorization: Bearer)" example:"sk-admin-master-key"`
-	Authorization  string `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
-	InternalSecret string `header:"X-Internal-Secret" doc:"内部サービス専用シークレット"`
-	Limit          int    `query:"limit" doc:"取得上限件数 (最大100件、デフォルト20件)" example:"20"`
+	Authorization string `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
+	Limit         int    `query:"limit" doc:"取得上限件数 (最大100件、デフォルト20件)" example:"20"`
 }
 
 // AdminListNotificationsOutput は管理者向けアプリ内通知一覧取得出力型
@@ -149,15 +144,9 @@ type AdminListNotificationsOutput struct {
 	}
 }
 
-// verifyAdmin は管理者キーおよび内部共有シークレットの適合性を検証する
-func verifyAdmin(adminHandler *AdminHandler, adminKey, authHeader, internalSecret, expectedInternalSecret string) bool {
-	if expectedInternalSecret != "" && subtle.ConstantTimeCompare([]byte(internalSecret), []byte(expectedInternalSecret)) == 1 {
-		return true
-	}
+// verifyAdmin は管理者キーの適合性を検証する
+func verifyAdmin(adminHandler *AdminHandler, authHeader string) bool {
 	if adminHandler == nil {
-		return true
-	}
-	if adminKey != "" && adminHandler.VerifyKey(adminKey) {
 		return true
 	}
 	if authHeader != "" && adminHandler.VerifyKey(authHeader) {
@@ -174,7 +163,6 @@ func SetupHumaAPI(
 	adminHandler *AdminHandler,
 	docsPath string,
 	openAPIPath string,
-	expectedInternalSecret string,
 	rateLimitMiddleware ...*RateLimitMiddleware,
 ) huma.API {
 	config := huma.DefaultConfig("Kura", "2.0.0")
@@ -199,15 +187,15 @@ func SetupHumaAPI(
 	// セキュリティスキームの登録（日本語）
 	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		"TenantAuth": {
-			Type:        "http",
-			Scheme:      "bearer",
-			Description: "テナント認証。ヘッダー `X-Service-ID`、`X-Tenant-ID`、または Bearer トークン",
-		},
-		"AdminAuth": {
 			Type:        "apiKey",
 			In:          "header",
-			Name:        "X-Admin-API-Key",
-			Description: "管理者用マスター API キー認証",
+			Name:        "X-Service-ID",
+			Description: "サービス・テナント認証（必須ヘッダー: `X-Service-ID`, `X-Tenant-ID`）",
+		},
+		"AdminAuth": {
+			Type:        "http",
+			Scheme:      "bearer",
+			Description: "管理者用マスター API キー認証 (`Authorization: Bearer <ADMIN_API_KEY>`)",
 		},
 	}
 
@@ -381,7 +369,7 @@ func SetupHumaAPI(
 			{"AdminAuth": {}},
 		},
 	}, func(ctx context.Context, input *AdminUsageInput) (*AdminUsageOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret, expectedInternalSecret) {
+		if !verifyAdmin(adminHandler, input.Authorization) {
 			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
 		}
 		report, err := adminHandler.UseCase().GetMonthlyUsage(ctx, input.ServiceID, input.Month)
@@ -403,7 +391,7 @@ func SetupHumaAPI(
 			{"AdminAuth": {}},
 		},
 	}, func(ctx context.Context, input *AdminLimitsInput) (*AdminLimitsOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret, expectedInternalSecret) {
+		if !verifyAdmin(adminHandler, input.Authorization) {
 			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
 		}
 		if err := adminHandler.UseCase().SetTenantLimit(ctx, &input.Body); err != nil {
@@ -427,7 +415,7 @@ func SetupHumaAPI(
 			{"AdminAuth": {}},
 		},
 	}, func(ctx context.Context, input *AdminRunJobInput) (*AdminRunJobOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret, expectedInternalSecret) {
+		if !verifyAdmin(adminHandler, input.Authorization) {
 			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
 		}
 		if adminHandler == nil || adminHandler.BatchUseCase() == nil {
@@ -466,7 +454,7 @@ func SetupHumaAPI(
 			{"AdminAuth": {}},
 		},
 	}, func(ctx context.Context, input *AdminListNotificationsInput) (*AdminListNotificationsOutput, error) {
-		if !verifyAdmin(adminHandler, input.AdminKey, input.Authorization, input.InternalSecret, expectedInternalSecret) {
+		if !verifyAdmin(adminHandler, input.Authorization) {
 			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
 		}
 		if adminHandler == nil || adminHandler.UseCase() == nil {

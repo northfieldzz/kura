@@ -58,6 +58,6 @@ func BenchmarkAuthenticateRequest(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, _ = uc.AuthenticateRequest(ctx, req, "")
+		_, _ = uc.AuthenticateRequest(ctx, req)
 	}
 }

@@ -32,15 +32,15 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
 ### 2.2 推論・中継 API (OpenAI 互換)
 | パス | メソッド | 認証 | 概要 |
 |---|:---:|:---:|---|
-| `/v1/chat/completions` | `POST` | Bearer キー | OpenAI 互換チャット補完 (非ストリーミング & SSE ストリーミング) |
-| `/v1/realtime` | `GET` | Bearer キー | OpenAI Realtime API (WebSocket) パススルー |
+| `/v1/chat/completions` | `POST` | X-Service-ID, X-Tenant-ID | OpenAI 互換チャット補完 (非ストリーミング & SSE ストリーミング) |
+| `/v1/realtime` | `GET` | X-Service-ID, X-Tenant-ID | OpenAI Realtime API (WebSocket) パススルー |
 
 ### 2.3 サービス・テナント向け自己照会 API
 サービス（クライアント）が自身の API キーや識別子を用いて、当月の累計消費量、予算上限、残り予算枠、許可モデル、有効期限をリアルタイムに自己照会するエンドポイント。
 
 | パス | メソッド | 認証 | 概要 |
 |---|:---:|:---:|---|
-| `/v1/usage` | `GET` | X-Service-ID または Bearer | サービス別月次使用量・リアルタイム残枠確認 |
+| `/v1/usage` | `GET` | X-Service-ID, X-Tenant-ID | サービス別月次使用量・リアルタイム残枠確認 |
 
 **レスポンス例 (`200 OK`)**:
 ```json
@@ -65,7 +65,7 @@ Kura では、API 定義の二重管理・ドキュメントの陳腐化を防�
 > `billing_type` が `pay_as_you_go` の場合、予算上限なしのため `service_remaining_cost_usd` は `-1` が返却される。テナント個別上限が未設定の場合は `tenant_cost_limit_usd` は `0`、`tenant_remaining_cost_usd` は `-1` となる。
 
 ### 2.4 管理用 API (Admin)
-マスター API キー（`X-Admin-API-Key` または `Authorization: Bearer <ADMIN_API_KEY>`）による認証が必要。
+マスター API キー（`Authorization: Bearer <ADMIN_API_KEY>`）による認証が必要。
 
 | パス | メソッド | 概要 |
 |---|:---:|---|

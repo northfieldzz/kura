@@ -137,7 +137,6 @@ curl -i http://localhost:8080/healthz
 ### 2. チャット補完 (OpenAI 互換・メタデータ付与)
 ```bash
 curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer sk-internal-demo" \
   -H "X-Service-ID: service-core" \
   -H "X-Tenant-ID: tenant-alpha" \
   -H "X-Environment: staging" \
@@ -156,7 +155,7 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 ### 3. テナント別クォータ・課金プラン設定 (Admin API)
 ```bash
 curl -X POST http://localhost:8080/v1/admin/limits \
-  -H "X-Admin-API-Key: ${ADMIN_API_KEY}" \
+  -H "Authorization: Bearer ${ADMIN_API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{
     "service_id": "service-core",
@@ -179,9 +178,9 @@ curl -X POST http://localhost:8080/v1/admin/limits \
 | `/v1/chat/completions` | `POST` | Bearer キー | OpenAI 互換チャット補完 (同期 / SSE ストリーミング) |
 | `/v1/realtime` | `GET` | Bearer キー | OpenAI Realtime API (WebSocket 双方向パススルー) |
 | `/v1/usage` | `GET` | Bearer キー | テナント月次利用量・残予算枠の自己照会 |
-| `/v1/admin/limits` | `POST` | X-Admin-API-Key | 予算上限・課金タイプ設定 |
-| `/v1/admin/usage` | `GET` | X-Admin-API-Key | 全サービス・テナント利用量レポート照会 |
-| `/v1/admin/jobs/run` | `POST` | X-Admin-API-Key | 月次締めレポート手動実行ジョブ |
+| `/v1/admin/limits` | `POST` | Bearer キー (Admin) | 予算上限・課金タイプ設定 |
+| `/v1/admin/usage` | `GET` | Bearer キー (Admin) | 全サービス・テナント利用量レポート照会 |
+| `/v1/admin/jobs/run` | `POST` | Bearer キー (Admin) | 月次締めレポート手動実行ジョブ |
 
 ---
 

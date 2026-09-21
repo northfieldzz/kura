@@ -141,7 +141,7 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	req.Header.Set("X-User-ID", "user-123")
 	req.Header.Set("X-Data-Residency", "japan")
 
-	res, errResp := uc.AuthenticateRequest(context.Background(), req, "")
+	res, errResp := uc.AuthenticateRequest(context.Background(), req)
 	if errResp != nil {
 		t.Fatalf("Unexpected error: %v", errResp)
 	}
@@ -155,23 +155,19 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 		t.Errorf("TenantContext fields mismatch: %+v", res.TenantContext)
 	}
 
-	// Case 2: Fallback from Bearer service:tenant:user header
-	reqFallback, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
-	reqFallback.Header.Set("Authorization", "Bearer ai-engine:team-b:user-456")
-
-	resFallback, errResp := uc.AuthenticateRequest(context.Background(), reqFallback, "")
-	if errResp != nil {
-		t.Fatalf("Unexpected error: %v", errResp)
-	}
-	if resFallback.TenantContext.ServiceID != "ai-engine" || resFallback.TenantContext.TenantID != "team-b" || resFallback.TenantContext.UserID != "user-456" {
-		t.Errorf("TenantContext fallback mismatch: %+v", resFallback.TenantContext)
+	// Case 2: Only Authorization Bearer without X-Service-ID and X-Tenant-ID headers -> 400
+	reqBearerOnly, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	reqBearerOnly.Header.Set("Authorization", "Bearer ai-engine:team-b:user-456")
+	_, errResp = uc.AuthenticateRequest(context.Background(), reqBearerOnly)
+	if errResp == nil || errResp.Err.VendorOriginalCode != "missing_service_id" {
+		t.Errorf("Expected 400 missing_service_id when only Bearer token provided, got %v", errResp)
 	}
 
 	// Case 3: Service-wide quota exceeded -> 429
 	reqSvcOver, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
 	reqSvcOver.Header.Set("X-Service-ID", "service-capped")
 	reqSvcOver.Header.Set("X-Tenant-ID", "any-random-tenant")
-	_, errResp = uc.AuthenticateRequest(context.Background(), reqSvcOver, "")
+	_, errResp = uc.AuthenticateRequest(context.Background(), reqSvcOver)
 	if errResp == nil || errResp.Err.VendorOriginalCode != "quota_exceeded" {
 		t.Errorf("Expected service-wide quota_exceeded error (429), got %v", errResp)
 	}
@@ -179,13 +175,17 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	// Case 4: Metadata and Tags headers extraction
 	reqMeta, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
 	reqMeta.Header.Set("X-Service-ID", "service-demo")
+	reqMeta.Header.Set("X-Tenant-ID", "tenant-demo")
 	reqMeta.Header.Set("X-Environment", "staging")
 	reqMeta.Header.Set("X-Feature", "rag-search")
 	reqMeta.Header.Set("X-Tags", "team=infra,experiment=v2,prod-candidate")
 
-	resMeta, errResp := uc.AuthenticateRequest(context.Background(), reqMeta, "")
+	resMeta, errResp := uc.AuthenticateRequest(context.Background(), reqMeta)
 	if errResp != nil {
 		t.Fatalf("Unexpected error: %v", errResp)
+	}
+	if resMeta.TenantContext.TenantID != "tenant-demo" {
+		t.Errorf("expected TenantID tenant-demo, got %s", resMeta.TenantContext.TenantID)
 	}
 	if resMeta.TenantContext.Environment != "staging" {
 		t.Errorf("expected Environment staging, got %s", resMeta.TenantContext.Environment)
@@ -201,7 +201,7 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	reqTenantOver, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
 	reqTenantOver.Header.Set("X-Service-ID", "ai-engine") // サービス全体は正常 (PAYG)
 	reqTenantOver.Header.Set("X-Tenant-ID", "tenant-capped") // テナント個別上限1.0ドルに対して消費1.25ドル
-	_, errResp = uc.AuthenticateRequest(context.Background(), reqTenantOver, "")
+	_, errResp = uc.AuthenticateRequest(context.Background(), reqTenantOver)
 	if errResp == nil || errResp.Err.VendorOriginalCode != "quota_exceeded" {
 		t.Errorf("Expected tenant-level quota_exceeded error (429), got %v", errResp)
 	}
@@ -210,7 +210,7 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	reqTenantSafe, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
 	reqTenantSafe.Header.Set("X-Service-ID", "ai-engine")
 	reqTenantSafe.Header.Set("X-Tenant-ID", "tenant-safe") // テナント個別上限5.0ドルに対して消費1.25ドル
-	resTenantSafe, errResp := uc.AuthenticateRequest(context.Background(), reqTenantSafe, "")
+	resTenantSafe, errResp := uc.AuthenticateRequest(context.Background(), reqTenantSafe)
 	if errResp != nil {
 		t.Fatalf("Unexpected error for safe tenant: %v", errResp)
 	}
@@ -218,21 +218,21 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 		t.Errorf("Expected successful auth for safe tenant, got: %+v", resTenantSafe)
 	}
 
-	// Case 7: Tollgate proxy headers (X-Tenant-ID, X-Key-ID, X-Key-Prefix, no X-Service-ID)
+	// Case 7: Tollgate proxy request with X-Service-ID, X-Tenant-ID, X-Key-ID
 	reqTollgate, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
-	reqTollgate.Header.Set("X-Tenant-ID", "tenant-corp-tollgate")
+	reqTollgate.Header.Set("X-Service-ID", "service-tollgate")
+	reqTollgate.Header.Set("X-Tenant-ID", "tenant-tollgate")
 	reqTollgate.Header.Set("X-Key-ID", "550e8400-e29b-41d4-a716-446655440000")
 	reqTollgate.Header.Set("X-Key-Prefix", "tlge-live-8f9c")
-	resTollgate, errResp := uc.AuthenticateRequest(context.Background(), reqTollgate, "")
+	resTollgate, errResp := uc.AuthenticateRequest(context.Background(), reqTollgate)
 	if errResp != nil {
 		t.Fatalf("Unexpected error for tollgate proxy request: %v", errResp)
 	}
-	if resTollgate.TenantContext.TenantID != "tenant-corp-tollgate" {
-		t.Errorf("expected TenantID tenant-corp-tollgate, got %s", resTollgate.TenantContext.TenantID)
+	if resTollgate.TenantContext.ServiceID != "service-tollgate" {
+		t.Errorf("expected ServiceID service-tollgate, got %s", resTollgate.TenantContext.ServiceID)
 	}
-	// X-Service-ID がない場合は TenantID が引き継がれる
-	if resTollgate.TenantContext.ServiceID != "tenant-corp-tollgate" {
-		t.Errorf("expected ServiceID to fallback to tenant-corp-tollgate, got %s", resTollgate.TenantContext.ServiceID)
+	if resTollgate.TenantContext.TenantID != "tenant-tollgate" {
+		t.Errorf("expected TenantID tenant-tollgate, got %s", resTollgate.TenantContext.TenantID)
 	}
 	if resTollgate.TenantContext.KeyID != "550e8400-e29b-41d4-a716-446655440000" {
 		t.Errorf("expected KeyID 550e8400-e29b-41d4-a716-446655440000, got %s", resTollgate.TenantContext.KeyID)
@@ -244,44 +244,51 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 		t.Errorf("expected IsProxied true for tollgate request, got false")
 	}
 
-	// Case 8: Standalone without any auth headers (fallback to defaults)
-	reqStandalone, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
-	resStandalone, errResp := uc.AuthenticateRequest(context.Background(), reqStandalone, "")
-	if errResp != nil {
-		t.Fatalf("Unexpected error for standalone request: %v", errResp)
+	// Case 8-1: Missing serviceID -> 400 Bad Request (missing_service_id, Fail-Fast)
+	reqMissingSvc, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	reqMissingSvc.Header.Set("X-Tenant-ID", "some-tenant")
+	_, errMissingSvc := uc.AuthenticateRequest(context.Background(), reqMissingSvc)
+	if errMissingSvc == nil {
+		t.Fatalf("expected error for missing serviceID, got success")
 	}
-	if resStandalone.TenantContext.ServiceID != "default" || resStandalone.TenantContext.TenantID != "tenant_default" || resStandalone.TenantContext.UserID != "anonymous" {
-		t.Errorf("expected default context for standalone, got %+v", resStandalone.TenantContext)
-	}
-	if resStandalone.TenantContext.KeyID != "" || resStandalone.TenantContext.KeyPrefix != "" {
-		t.Errorf("expected empty KeyID/KeyPrefix for standalone, got key_id=%s, prefix=%s",
-			resStandalone.TenantContext.KeyID, resStandalone.TenantContext.KeyPrefix)
-	}
-	if resStandalone.TenantContext.IsProxied {
-		t.Errorf("expected IsProxied false for standalone request, got true")
+	if errMissingSvc.Err.Code != http.StatusBadRequest || errMissingSvc.Err.VendorOriginalCode != "missing_service_id" {
+		t.Errorf("expected 400 missing_service_id, got %v", errMissingSvc)
 	}
 
-	// Case 9: EnforceTollgateAuth = true -> rejects standalone (missing X-Tenant-ID or X-Key-ID)
+	// Case 8-2: Missing tenantID -> 400 Bad Request (missing_tenant_id, Fail-Fast)
+	reqMissingTenant, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
+	reqMissingTenant.Header.Set("X-Service-ID", "some-service")
+	_, errMissingTenant := uc.AuthenticateRequest(context.Background(), reqMissingTenant)
+	if errMissingTenant == nil {
+		t.Fatalf("expected error for missing tenantID, got success")
+	}
+	if errMissingTenant.Err.Code != http.StatusBadRequest || errMissingTenant.Err.VendorOriginalCode != "missing_tenant_id" {
+		t.Errorf("expected 400 missing_tenant_id, got %v", errMissingTenant)
+	}
+
+	// Case 9: EnforceTollgateAuth = true -> rejects when X-Key-ID is missing (401 missing_tollgate_headers)
 	ucEnforced := NewAuthUseCaseWithConfig(repo, AuthUseCaseConfig{
 		EnforceTollgateAuth: true,
-		DefaultTenantID:     "tenant_default",
 	})
 	reqDenied, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
-	_, errDenied := ucEnforced.AuthenticateRequest(context.Background(), reqDenied, "")
+	reqDenied.Header.Set("X-Service-ID", "ai-engine")
+	reqDenied.Header.Set("X-Tenant-ID", "tenant-demo")
+	_, errDenied := ucEnforced.AuthenticateRequest(context.Background(), reqDenied)
 	if errDenied == nil || errDenied.Err.VendorOriginalCode != "missing_tollgate_headers" {
-		t.Errorf("expected 401 missing_tollgate_headers error when EnforceTollgateAuth=true, got: %v", errDenied)
+		t.Errorf("expected 401 missing_tollgate_headers error when EnforceTollgateAuth=true without X-Key-ID, got: %v", errDenied)
 	}
 
-	// Case 10: EnforceTollgateAuth = true -> passes when valid Tollgate headers are provided
+	// Case 10: EnforceTollgateAuth = true -> passes when X-Service-ID, X-Tenant-ID, and X-Key-ID are provided
 	reqEnforcedPass, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
-	reqEnforcedPass.Header.Set("X-Tenant-ID", "tenant-corp-enforced")
+	reqEnforcedPass.Header.Set("X-Service-ID", "service-enforced")
+	reqEnforcedPass.Header.Set("X-Tenant-ID", "tenant-enforced")
 	reqEnforcedPass.Header.Set("X-Key-ID", "uuid-valid-key")
-	resEnforcedPass, errEnforcedPass := ucEnforced.AuthenticateRequest(context.Background(), reqEnforcedPass, "")
+	resEnforcedPass, errEnforcedPass := ucEnforced.AuthenticateRequest(context.Background(), reqEnforcedPass)
 	if errEnforcedPass != nil {
 		t.Fatalf("unexpected error for valid request when EnforceTollgateAuth=true: %v", errEnforcedPass)
 	}
-	if !resEnforcedPass.TenantContext.IsProxied || resEnforcedPass.TenantContext.TenantID != "tenant-corp-enforced" {
-		t.Errorf("expected is_proxied=true and tenant-corp-enforced, got %+v", resEnforcedPass.TenantContext)
+	if !resEnforcedPass.TenantContext.IsProxied || resEnforcedPass.TenantContext.ServiceID != "service-enforced" || resEnforcedPass.TenantContext.TenantID != "tenant-enforced" {
+		t.Errorf("expected is_proxied=true, ServiceID=service-enforced, TenantID=tenant-enforced, got %+v", resEnforcedPass.TenantContext)
 	}
 }
 

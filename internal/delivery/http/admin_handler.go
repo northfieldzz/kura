@@ -50,18 +50,12 @@ func (h *AdminHandler) VerifyKey(key string) bool {
 	return subtle.ConstantTimeCompare([]byte(key), []byte(h.adminAPIKey)) == 1
 }
 
-// verifyAdminAuth は管理者キーを検証する
+// verifyAdminAuth は管理者キーを検証する (Authorization: Bearer <ADMIN_KEY>)
 func (h *AdminHandler) verifyAdminAuth(r *http.Request) bool {
 	if h.adminAPIKey == "" {
 		return false // 未設定時はアクセス拒否
 	}
 
-	// 1. X-Admin-API-Key ヘッダー
-	if key := r.Header.Get("X-Admin-API-Key"); key != "" {
-		return h.VerifyKey(key)
-	}
-
-	// 2. Authorization: Bearer <ADMIN_KEY>
 	authHeader := r.Header.Get("Authorization")
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		return h.VerifyKey(authHeader)

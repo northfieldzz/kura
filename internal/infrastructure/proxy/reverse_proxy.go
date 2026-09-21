@@ -247,7 +247,7 @@ func (p *LLMProxy) handleStreaming(
 	if clientDisconnected {
 		status = 499
 	}
-	serviceID := "default"
+	serviceID := "unknown"
 	if tenantCtx != nil && tenantCtx.ServiceID != "" {
 		serviceID = tenantCtx.ServiceID
 	}
@@ -353,7 +353,7 @@ func (p *LLMProxy) handleNonStreaming(
 	}
 
 	// Prometheus メトリクス記録
-	serviceID := "default"
+	serviceID := "unknown"
 	if tenantCtx != nil && tenantCtx.ServiceID != "" {
 		serviceID = tenantCtx.ServiceID
 	}
@@ -369,15 +369,14 @@ func (p *LLMProxy) recordUsage(
 ) {
 	currentMonth := entity.CurrentMonthJST()
 
-	serviceID := "default"
-	tenantID := "default"
+	var serviceID, tenantID string
 	if tenantCtx != nil {
 		serviceID = tenantCtx.ServiceID
 		tenantID = tenantCtx.TenantID
 	}
 
-	// 1. QuotaRepository (DynamoDB) への非同期集計
-	if p.quotaRepo != nil && totalTokens > 0 {
+	// 1. QuotaRepository (DynamoDB) への非同期集計 (serviceID が存在する場合のみ)
+	if p.quotaRepo != nil && totalTokens > 0 && serviceID != "" {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
