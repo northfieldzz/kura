@@ -37,7 +37,7 @@ func NewLLMProxy(logger service.UsageLogger, quotaRepo repository.QuotaRepositor
 			MaxIdleConns:        1000,
 			MaxIdleConnsPerHost: 100,
 			IdleConnTimeout:     90 * time.Second,
-			DisableCompression: true, // SSE の即時転送とチャンク制御のため圧縮を無効化
+			DisableCompression:  true, // SSE の即時転送とチャンク制御のため圧縮を無効化
 		},
 		usageLogger: logger,
 		quotaRepo:   quotaRepo,
@@ -416,18 +416,25 @@ func (p *LLMProxy) handleVendorError(w http.ResponseWriter, resp *http.Response)
 }
 
 func (p *LLMProxy) handleVendorErrorWithBody(w http.ResponseWriter, statusCode int, body []byte) {
-	var vendorErrMap map[string]any
 	var originalCode string
 	var message string = string(body)
 
-	if err := json.Unmarshal(body, &vendorErrMap); err == nil {
-		if errObj, ok := vendorErrMap["error"].(map[string]any); ok {
-			if m, ok := errObj["message"].(string); ok {
-				message = m
-			}
-			if c, ok := errObj["code"].(string); ok {
-				originalCode = c
-			}
+	// ⚡ Bolt Optimization: Use a fast anonymous struct instead of unmarshaling into map[string]any
+	// This avoids expensive memory allocations and recursive parsing when the vendor returns large
+	// error payloads with extra metadata, significantly speeding up error handling.
+	var fastErr struct {
+		Error struct {
+			Message string `json:"message"`
+			Code    string `json:"code"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal(body, &fastErr); err == nil {
+		if fastErr.Error.Message != "" {
+			message = fastErr.Error.Message
+		}
+		if fastErr.Error.Code != "" {
+			originalCode = fastErr.Error.Code
 		}
 	}
 

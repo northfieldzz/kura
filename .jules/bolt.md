@@ -13,3 +13,6 @@
 ## 2025-02-12 - Prevent massive allocations when extracting small subsets of large JSONs
 **Learning:** Fully unmarshaling a large JSON payload (like `entity.ChatCompletionResponse`) just to extract a tiny subset (like `usage`) forces Go to allocate and parse everything, including massive text fields inside `choices` and nested structures, wasting significant CPU and memory.
 **Action:** When extracting only a single or a few fields from a potentially large JSON response, define an anonymous struct with only the required fields (`var fastResp struct { Usage *entity.UsageInfo }`). `json.Unmarshal` will quickly skip the unmapped fields, bringing significant performance wins per-request.
+## 2026-09-23 - Fast anonymous structs for extracting specific fields from vendor error responses
+**Learning:** Full JSON unmarshaling (`json.Unmarshal`) into `map[string]any` just to extract error fields like `error.message` and `error.code` triggers unnecessary allocations, which can be expensive if the vendor returns large extra payload data.
+**Action:** When extracting specific fields from error or JSON payloads, use an anonymous struct with the exact fields (e.g. `var fastErr struct { Error struct { Message string ... } }`) and `json.Unmarshal`. This skips all unknown fields and requires fewer allocations.
