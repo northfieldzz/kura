@@ -121,11 +121,16 @@ func (a *openAIAdapter) PrepareRequest(ctx context.Context, origReq *entity.Chat
 }
 
 func (a *openAIAdapter) ExtractUsageFromResponse(body []byte) (*entity.UsageInfo, error) {
-	var resp entity.ChatCompletionResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
+	// ⚡ Bolt Optimization: Unmarshal into a fast anonymous struct that only extracts the "usage" field.
+	// This avoids allocating memory and parsing large strings for the "choices" and "messages" fields
+	// in long chat completions, speeding up token usage extraction significantly.
+	var fastResp struct {
+		Usage *entity.UsageInfo `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &fastResp); err != nil {
 		return nil, err
 	}
-	return resp.Usage, nil
+	return fastResp.Usage, nil
 }
 
 var usageBytes = []byte(`"usage"`)
