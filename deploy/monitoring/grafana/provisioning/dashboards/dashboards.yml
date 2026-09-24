@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: "Kura Dashboards"
+    orgId: 1
+    folder: "Kura"
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

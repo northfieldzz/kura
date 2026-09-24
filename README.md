@@ -339,6 +339,8 @@ kura/
 │   │   └── websocket/              # Realtime WebSocket プロキシ
 │   └── usecase/                    # ビジネスロジック (Auth, Chat, Admin, Batch)
 ├── docs/                           # 詳細仕様ドキュメント群
+├── deploy/
+│   └── monitoring/                 # 監視スタック設定 (Prometheus / Grafana ダッシュボード)
 ├── pricing.json                    # モデル別単価定義ファイル
 ├── Dockerfile                      # Gateway マルチステージビルド定義
 ├── Dockerfile.mock                 # モックサーバービルド定義
@@ -451,13 +453,16 @@ cp .env.example .env  # 必要に応じてシークレットや環境変数を�
 docker compose up -d --build
 ```
 
-マルチコンテナ構成（DynamoDB や PostgreSQL、Valkey）で起動する場合はプロファイルを指定する：
+マルチコンテナ構成（DynamoDB や PostgreSQL、Valkey）やモニタリングスタック（Prometheus & Grafana）を起動する場合はプロファイルを指定する：
 ```bash
 # DynamoDB Local 構成で起動
 docker compose --profile dynamodb up -d --build
 
 # Valkey + PostgreSQL 構成で起動
 docker compose --profile valkey --profile postgres up -d --build
+
+# モニタリングスタック (Prometheus & Grafana) を併せて起動
+docker compose --profile monitor up -d --build
 ```
 
 ### 3. Docker 単体での最短起動
@@ -491,6 +496,8 @@ GATEWAY_SHARED_SECRET="a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789
 - **Scalar API ドキュメント**: `http://localhost:8080/docs`
 - **OpenAPI 3.1 仕様書**: `http://localhost:8080/openapi`
 - **統合 LLM モックサーバー**: `http://localhost:8090`
+- **Prometheus UI**（`--profile monitor` 起動時）: `http://localhost:9090`
+- **Grafana ダッシュボード**（`--profile monitor` 起動時）: `http://localhost:3000`（匿名管理者ログイン対応）
 
 ---
 

@@ -133,8 +133,39 @@ services:
       test: [ "CMD-SHELL", "pg_isready -U kura -d kura" ]
       interval: 5s
       timeout: 3s
-      retries: 5
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: kura-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    profiles:
+      - monitor
+      - all
+    depends_on:
+      - kura
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: kura-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./deploy/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./deploy/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    profiles:
+      - monitor
+      - all
+    depends_on:
+      - prometheus
 
 volumes:
   kura-data:
   postgres-data:
+
