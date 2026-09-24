@@ -341,6 +341,7 @@ kura/
 ├── docs/                           # 詳細仕様ドキュメント群
 ├── deploy/
 │   └── monitoring/                 # 監視スタック設定 (Prometheus / Grafana ダッシュボード)
+├── http/                           # API 動作検証用 REST Client テストスイート (test.http)
 ├── pricing.json                    # モデル別単価定義ファイル
 ├── Dockerfile                      # Gateway マルチステージビルド定義
 ├── Dockerfile.mock                 # モックサーバービルド定義

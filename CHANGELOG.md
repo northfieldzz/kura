@@ -46,6 +46,13 @@ All notable changes to this project will be documented in this file.
   - **テナント/サービス設定の読み取りキャッシュ**: 短い TTL（既定: 60秒）で設定をローカルキャッシュ。
   - **残枠キャッシュ & 加算バッチ書き込み**: オプションで残枠読み取りキャッシュおよび加算のバッファリングを提供（既定オフ）。グレースフルシャットダウン時に必ずバッファをフラッシュ。
   - **可観測性の拡充**: Prometheus メトリクスにキャッシュヒット/ミス数、ネガティブ遮断数、フラッシュ回数、バッファ中未反映額を追加。
+- **Prometheus & Grafana モニタリングスタック**:
+  - `deploy/monitoring/` に Prometheus スクレイプ設定および Grafana プロビジョニング設定・公式ダッシュボードを内包。
+  - `docker compose --profile monitor up -d` で監視スタックを即座に起動可能。
+- **マルチプラットフォーム単一バイナリ配布 (GoReleaser)**:
+  - GitHub Actions によるタグ push 連動のクロスコンパイルバイナリ（Linux/macOS/Windows, amd64/arm64）自動ビルド & GitHub Releases 添付。
+- **API 動作検証用 REST Client テストスイート (`http/test.http`)**:
+  - VS Code REST Client / JetBrains HTTP Client で即座に全 API エンドポイントをテスト可能なリクエスト集を追加。
 - **Docker Compose 最短起動の改善**:
   - 既定で SQLite バックエンドとデータボリューム（`kura-data:/data`）を使用し、外部サービスなしで `docker compose up` だけで永続化付き最短起動が可能に。
 

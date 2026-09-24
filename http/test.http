@@ -1,0 +1,143 @@
+### ====================================================
+### Kura LLM Gateway API Test Suite
+### VS Code REST Client (humao.rest-client) 用
+###
+### 使い方:
+###   1. 各リクエストの上にある "Send Request" をクリック
+###   2. 共有シークレット、テナント識別子、管理用 API の疎通を検証
+### ====================================================
+
+@baseUrl = http://localhost:8080
+@gatewaySecret = your-gateway-shared-secret-at-least-32-chars-long
+@adminKey = admin-master-secret-key-at-least-32-chars
+@serviceId = payment-service
+@tenantId = tenant-corp-a
+
+### ==================================================
+### 1. 公開 API (推論・自己照会)
+### ==================================================
+
+### ① チャット補完 (同期リクエスト・仮想モデル fast)
+POST {{baseUrl}}/v1/chat/completions
+X-Gateway-Secret: {{gatewaySecret}}
+X-Service-ID: {{serviceId}}
+X-Tenant-ID: {{tenantId}}
+X-Environment: staging
+X-Feature: test-suite
+Content-Type: application/json
+
+{
+  "model": "fast",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello, Kura Gateway!"
+    }
+  ]
+}
+
+### ② チャット補完 (SSE ストリーミング・仮想モデル smart)
+POST {{baseUrl}}/v1/chat/completions
+X-Gateway-Secret: {{gatewaySecret}}
+X-Service-ID: {{serviceId}}
+X-Tenant-ID: {{tenantId}}
+X-Environment: staging
+Content-Type: application/json
+
+{
+  "model": "smart",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Explain quantum computing in one sentence."
+    }
+  ],
+  "stream": true
+}
+
+### ③ チャット補完 (日本国内限定ルーティング指定)
+POST {{baseUrl}}/v1/chat/completions
+X-Gateway-Secret: {{gatewaySecret}}
+X-Service-ID: {{serviceId}}
+X-Tenant-ID: {{tenantId}}
+X-Data-Residency: japan
+Content-Type: application/json
+
+{
+  "model": "fast",
+  "messages": [
+    {
+      "role": "user",
+      "content": "こんにちは（国内ルーティングテスト）"
+    }
+  ]
+}
+
+### ④ サービス・テナント利用量 & 残枠の自己照会
+GET {{baseUrl}}/v1/usage
+X-Gateway-Secret: {{gatewaySecret}}
+X-Service-ID: {{serviceId}}
+X-Tenant-ID: {{tenantId}}
+
+### ==================================================
+### 2. 管理 API (Admin)
+### ==================================================
+
+### ⑤ テナントクォータ・月次予算上限の設定
+POST {{baseUrl}}/v1/admin/limits
+Authorization: Bearer {{adminKey}}
+Content-Type: application/json
+
+{
+  "service_id": "{{serviceId}}",
+  "tenant_id": "{{tenantId}}",
+  "cost_limit": 100.0,
+  "billing_type": "capped"
+}
+
+### ⑥ サービス別月次利用実績 & モデル内訳レポート取得
+GET {{baseUrl}}/v1/admin/usage?service_id={{serviceId}}&month=2026-09
+Authorization: Bearer {{adminKey}}
+
+### ⑦ 定期バッチジョブ（月次締め / アラート）の手動即時実行
+POST {{baseUrl}}/v1/admin/jobs/run
+Authorization: Bearer {{adminKey}}
+Content-Type: application/json
+
+{
+  "job": "quota_alerts"
+}
+
+### ⑧ コストストア残高の集計結果ストアからの手動補正 (Reconcile)
+POST {{baseUrl}}/v1/admin/jobs/reconcile
+Authorization: Bearer {{adminKey}}
+
+### ⑨ アプリ内通知・アラート一覧取得
+GET {{baseUrl}}/v1/admin/notifications
+Authorization: Bearer {{adminKey}}
+
+### ==================================================
+### 3. システム & ヘルスチェック API
+### ==================================================
+
+### ⑩ Liveness プローブ
+GET {{baseUrl}}/livez
+
+### ⑪ Readiness プローブ
+GET {{baseUrl}}/readyz
+
+### ⑫ 総合ヘルスチェック
+GET {{baseUrl}}/healthz
+
+### ⑬ Prometheus メトリクス
+GET {{baseUrl}}/metrics
+
+### ⑭ OpenAPI 3.1 仕様書
+GET {{baseUrl}}/openapi
+
+### ⑮ Scalar API ドキュメント UI
+GET {{baseUrl}}/docs
