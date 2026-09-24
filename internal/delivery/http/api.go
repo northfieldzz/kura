@@ -147,7 +147,7 @@ type AdminListNotificationsOutput struct {
 // verifyAdmin は管理者キーの適合性を検証する
 func verifyAdmin(adminHandler *AdminHandler, authHeader string) bool {
 	if adminHandler == nil {
-		return true
+		return false
 	}
 	if authHeader != "" && adminHandler.VerifyKey(authHeader) {
 		return true
