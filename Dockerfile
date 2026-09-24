@@ -19,7 +19,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o
 # ==========================================
 # 2. Runtime Stage (Minimal Alpine)
 # ==========================================
-FROM alpine:3.19
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata
 
