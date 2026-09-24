@@ -67,18 +67,18 @@ func (u *authUseCase) AuthenticateRequest(
 	r *http.Request,
 ) (*AuthResult, *entity.StandardErrorResponse) {
 	// 1. テナント・ユーザー・サービス識別子およびメタデータの解決 (HTTP ヘッダー)
-	serviceID := r.Header.Get("X-Service-ID")
+	serviceID := getHeaderFast(r.Header, "X-Service-Id")
 	if serviceID == "" {
-		serviceID = r.Header.Get("X-Consumer-ID")
+		serviceID = getHeaderFast(r.Header, "X-Consumer-Id")
 	}
-	tenantID := r.Header.Get("X-Tenant-ID")
-	userID := r.Header.Get("X-User-ID")
-	keyID := r.Header.Get("X-Key-ID")
-	keyPrefix := r.Header.Get("X-Key-Prefix")
-	dataResidency := r.Header.Get("X-Data-Residency")
-	environment := r.Header.Get("X-Environment")
-	feature := r.Header.Get("X-Feature")
-	tagsHeader := r.Header.Get("X-Tags")
+	tenantID := getHeaderFast(r.Header, "X-Tenant-Id")
+	userID := getHeaderFast(r.Header, "X-User-Id")
+	keyID := getHeaderFast(r.Header, "X-Key-Id")
+	keyPrefix := getHeaderFast(r.Header, "X-Key-Prefix")
+	dataResidency := getHeaderFast(r.Header, "X-Data-Residency")
+	environment := getHeaderFast(r.Header, "X-Environment")
+	feature := getHeaderFast(r.Header, "X-Feature")
+	tagsHeader := getHeaderFast(r.Header, "X-Tags")
 
 	// サービス識別子の必須検証 (トレーサビリティ担保のため暗黙のフォールバックは行わず 400 で即時拒否)
 	if serviceID == "" {
@@ -198,6 +198,16 @@ func (u *authUseCase) AuthenticateRequest(
 		MonthlyUsageTokens:   totalTokens,
 		MonthlyUsageCost:     totalCost,
 	}, nil
+}
+
+// ⚡ Bolt Optimization: getHeaderFast avoids r.Header.Get() overhead.
+// net/http already canonicalizes headers during parsing. By directly accessing the map,
+// we skip the string allocations and overhead in net/textproto.CanonicalMIMEHeaderKey.
+func getHeaderFast(h http.Header, key string) string {
+	if v, ok := h[key]; ok && len(v) > 0 {
+		return v[0]
+	}
+	return ""
 }
 
 // parseTagsHeader はカンマ区切りのタグヘッダー（例: "env=prod,team=alpha,experiment"）を map に変換する

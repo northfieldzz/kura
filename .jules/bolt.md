@@ -16,3 +16,6 @@
 ## 2026-09-23 - Fast anonymous structs for extracting specific fields from vendor error responses
 **Learning:** Full JSON unmarshaling (`json.Unmarshal`) into `map[string]any` just to extract error fields like `error.message` and `error.code` triggers unnecessary allocations, which can be expensive if the vendor returns large extra payload data.
 **Action:** When extracting specific fields from error or JSON payloads, use an anonymous struct with the exact fields (e.g. `var fastErr struct { Error struct { Message string ... } }`) and `json.Unmarshal`. This skips all unknown fields and requires fewer allocations.
+## 2026-09-24 - Bypass net/http Header Canonicalization Overhead
+**Learning:** `net/http` pre-canonicalizes headers during parsing. Using `r.Header.Get("X-My-Header")` unconditionally runs `net/textproto.CanonicalMIMEHeaderKey`, which allocates memory and burns CPU on every call. In high-throughput paths (like request authentication where 10+ headers are extracted), this becomes a measurable bottleneck.
+**Action:** When extracting known, canonicalized headers on hot paths from a `net/http` request, directly access the map using `r.Header["X-My-Header"]` instead of `.Get()` to bypass unnecessary canonicalization logic.
