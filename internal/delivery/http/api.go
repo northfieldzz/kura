@@ -58,8 +58,6 @@ type ChatCompletionOutput struct {
 	QuotaRemainingTokens string                        `header:"X-Quota-Remaining-Tokens" doc:"当月の残り利用可能トークン数 (または 'unlimited')"`
 	MonthlyUsageTokens   int64                         `header:"X-Monthly-Usage-Tokens" doc:"当月の累計消費トークン数"`
 	MonthlyUsageCost     string                        `header:"X-Monthly-Usage-Cost" doc:"当月の累計概算利用コスト (USD)"`
-	RateLimitRPM         string                        `header:"X-RateLimit-Limit-RPM" doc:"分間リクエスト上限 (RPM)"`
-	RateLimitRemaining   string                        `header:"X-RateLimit-Remaining-RPM" doc:"当分内の残りリクエスト可能数"`
 	RequestID            string                        `header:"X-Request-ID" doc:"リクエスト追跡識別子 (UUID)"`
 	Body                 entity.ChatCompletionResponse `doc:"チャット完了レスポンスまたは SSE ストリーム"`
 }
@@ -163,7 +161,6 @@ func SetupHumaAPI(
 	adminHandler *AdminHandler,
 	docsPath string,
 	openAPIPath string,
-	rateLimitMiddleware ...*RateLimitMiddleware,
 ) huma.API {
 	config := huma.DefaultConfig("Kura", "2.0.0")
 	config.OpenAPIPath = openAPIPath
@@ -306,9 +303,6 @@ func SetupHumaAPI(
 					req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 				}
 				chain := handler.ChatCompletions
-				if len(rateLimitMiddleware) > 0 && rateLimitMiddleware[0] != nil {
-					chain = rateLimitMiddleware[0].Wrap(chain)
-				}
 				authMiddleware.Wrap(chain)(rw, req)
 			}
 		}
@@ -428,8 +422,10 @@ func SetupHumaAPI(
 			err = adminHandler.BatchUseCase().RunMonthlyReport(ctx)
 		case "quota_alert", "quota_alerts":
 			err = adminHandler.BatchUseCase().RunQuotaAlerts(ctx)
+		case "reconcile", "reconciliation":
+			err = adminHandler.BatchUseCase().RunReconciliation(ctx)
 		default:
-			return nil, huma.Error400BadRequest("Invalid job_name. Must be 'monthly_report' or 'quota_alerts'")
+			return nil, huma.Error400BadRequest("Invalid job_name. Must be 'monthly_report', 'quota_alerts', or 'reconcile'")
 		}
 
 		if err != nil {
@@ -439,6 +435,37 @@ func SetupHumaAPI(
 		out := &AdminRunJobOutput{}
 		out.Body.Status = "ok"
 		out.Body.Message = "Job " + input.Body.JobName + " executed successfully"
+		return out, nil
+	})
+
+	// 9-1. POST /v1/admin/jobs/reconcile
+	huma.Register(api, huma.Operation{
+		OperationID: "reconcile-admin-counters",
+		Method:      http.MethodPost,
+		Path:        "/v1/admin/jobs/reconcile",
+		Summary:     "コストカウンタの即時再構築・補正",
+		Description: "集計結果ストアの実績データから、コスト管理ストア (Valkey/Redis等) のカウンタを再計算して補正する。",
+		Tags:        []string{"管理者向け API (Admin)"},
+		Security: []map[string][]string{
+			{"AdminAuth": {}},
+		},
+	}, func(ctx context.Context, input *struct {
+		Authorization string `header:"Authorization" doc:"管理者用マスター API キー (Bearer 形式)" example:"Bearer sk-admin-master-key"`
+	}) (*AdminRunJobOutput, error) {
+		if !verifyAdmin(adminHandler, input.Authorization) {
+			return nil, huma.Error401Unauthorized("Invalid or missing admin API key")
+		}
+		if adminHandler == nil || adminHandler.BatchUseCase() == nil {
+			return nil, huma.Error500InternalServerError("Batch usecase not configured")
+		}
+
+		if err := adminHandler.BatchUseCase().RunReconciliation(ctx); err != nil {
+			return nil, huma.Error500InternalServerError("Reconciliation failed: " + err.Error())
+		}
+
+		out := &AdminRunJobOutput{}
+		out.Body.Status = "ok"
+		out.Body.Message = "Counter reconciliation completed successfully"
 		return out, nil
 	})
 

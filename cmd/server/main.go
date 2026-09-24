@@ -6,19 +6,22 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	delivery "github.com/northfieldzz/kura/internal/delivery/http"
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/repository"
 	"github.com/northfieldzz/kura/internal/infrastructure/adapter"
+	"github.com/northfieldzz/kura/internal/infrastructure/cache"
 	"github.com/northfieldzz/kura/internal/infrastructure/config"
-	"github.com/northfieldzz/kura/internal/infrastructure/dynamodb"
 	"github.com/northfieldzz/kura/internal/infrastructure/logger"
 	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
 	"github.com/northfieldzz/kura/internal/infrastructure/notifier"
 	"github.com/northfieldzz/kura/internal/infrastructure/proxy"
-	"github.com/northfieldzz/kura/internal/infrastructure/ratelimit"
 	"github.com/northfieldzz/kura/internal/infrastructure/scheduler"
+	"github.com/northfieldzz/kura/internal/infrastructure/store"
 	"github.com/northfieldzz/kura/internal/infrastructure/websocket"
 	"github.com/northfieldzz/kura/internal/usecase"
 )
@@ -26,58 +29,97 @@ import (
 func main() {
 	// 1. 設定のロード
 	cfg := config.Load()
-	log.Printf("[INFO] Starting Kura on port %s (Region: %s)", cfg.Port, cfg.AWSRegion)
+	log.Printf("[INFO] Starting Kura on port %s (Region: %s, CostStore: %s, UsageStore: %s)",
+		cfg.Port, cfg.AWSRegion, cfg.CostStoreType, cfg.UsageStoreType)
 
-	// 2. インフラ層の初期化
-	// 非同期構造化ロガー (CloudWatch Logs 向け)
+	// 2. 単価表 (Pricing Engine) のロードと検証
+	pricingEngine := entity.DefaultEngine()
+	if cfg.PricingFilePath != "" {
+		if err := pricingEngine.LoadFromFile(cfg.PricingFilePath); err != nil {
+			log.Fatalf("[FATAL] Failed to load pricing file '%s': %v", cfg.PricingFilePath, err)
+		}
+	}
+	if cfg.UnknownModelPolicy != "" {
+		pricingEngine.SetUnknownModelPolicy(cfg.UnknownModelPolicy)
+	}
+
+	// 3. インフラ層（ストア・ロガー・メトリクス・アダプター）の初期化
 	usageLogger := logger.NewConsoleLogger(cfg.LogChannelBufferSize)
 
-	// DynamoDB / インメモリ クォータリポジトリ
-	quotaRepo := dynamodb.NewQuotaRepository(cfg.DynamoDBEndpoint, cfg.AWSRegion, cfg.DynamoDBTableName, cfg.DefaultTokenQuota)
-
-	// ベンダーアダプター (Azure AI Foundry: GPT/Claude)
-	openAIAdapter := adapter.NewOpenAIAdapter(cfg)
-
-	// プロバイダ有効化状況のロギング
-	log.Printf("[INFO] Provider Status -> Azure (GPT/Claude): %t", openAIAdapter.IsEnabled())
+	storeBundle, err := store.InitializeStores(cfg)
+	if err != nil {
+		log.Fatalf("[FATAL] Failed to initialize storage backends: %v", err)
+	}
+	rawCostStore := storeBundle.CostStore
+	usageStore := storeBundle.UsageStore
 
 	// Prometheus メトリクス
 	promMetrics := metrics.NewMetrics()
 
+	// キャッシュ層デコレーター (SQLite 以外で CacheEnabled の場合に適用)
+	var costStore repository.CostStore = rawCostStore
+	var cachedStore *cache.CachedCostStore
+	isSQLite := strings.ToLower(strings.TrimSpace(cfg.CostStoreType)) == "sqlite"
+
+	if cfg.CacheEnabled && !isSQLite {
+		cacheOpts := cache.CacheOptions{
+			Enabled:            true,
+			NegativeTTL:        time.Duration(cfg.CacheNegativeTTLSeconds) * time.Second,
+			ConfigTTL:          time.Duration(cfg.CacheConfigTTLSeconds) * time.Second,
+			BalanceTTL:         time.Duration(cfg.CacheBalanceTTLSeconds) * time.Second,
+			BatchFlushInterval: time.Duration(cfg.CacheBatchFlushIntervalSeconds) * time.Second,
+		}
+		cachedStore = cache.NewCachedCostStore(rawCostStore, promMetrics, cacheOpts)
+		costStore = cachedStore
+		log.Printf("[INFO] [CACHE] Cache layer enabled (NegativeTTL: %ds, ConfigTTL: %ds, BalanceTTL: %ds, BatchFlush: %ds)",
+			cfg.CacheNegativeTTLSeconds, cfg.CacheConfigTTLSeconds, cfg.CacheBalanceTTLSeconds, cfg.CacheBatchFlushIntervalSeconds)
+	} else if isSQLite {
+		log.Printf("[INFO] [CACHE] Cache layer bypassed for SQLite single-node backend.")
+	}
+
+	// ベンダーアダプター
+	openAIAdapter := adapter.NewOpenAIAdapter(cfg)
+	bedrockAdapter := adapter.NewBedrockAdapter(cfg)
+
+	// プロバイダ有効化状況のロギング
+	log.Printf("[INFO] Provider Status -> Azure (GPT/Claude): %t, Bedrock: %t",
+		openAIAdapter.IsEnabled(), bedrockAdapter.IsEnabled())
+
 	// プロキシ & WebSocket
-	llmProxy := proxy.NewLLMProxy(usageLogger, quotaRepo, promMetrics)
+	llmProxy := proxy.NewLLMProxy(usageLogger, costStore, usageStore, pricingEngine, promMetrics)
 	realtimeProxy := websocket.NewRealtimeProxy(cfg)
 
-	// 3. ユースケース層の初期化
-	authUseCase := usecase.NewAuthUseCaseWithConfig(quotaRepo, usecase.AuthUseCaseConfig{
+	// 4. ユースケース層の初期化
+	authUseCase := usecase.NewAuthUseCaseWithConfig(costStore, usageStore, usecase.AuthUseCaseConfig{
 		EnforceTollgateAuth: cfg.EnforceTollgateAuth,
 	})
-	adminUseCase := usecase.NewAdminUseCase(quotaRepo)
+	adminUseCase := usecase.NewAdminUseCase(costStore, usageStore)
 	chatUseCase := usecase.NewChatUseCase(openAIAdapter, llmProxy)
+	chatUseCase.RegisterAdapter("bedrock/", bedrockAdapter)
+	chatUseCase.RegisterAdapter("amazon.", bedrockAdapter)
+	chatUseCase.RegisterAdapter("anthropic.", bedrockAdapter)
 
-	internalNotifier := notifier.NewInternalNotifier(quotaRepo)
-	batchUseCase := usecase.NewBatchUseCase(quotaRepo, internalNotifier)
+	internalNotifier := notifier.NewInternalNotifier(usageStore)
+	batchUseCase := usecase.NewBatchUseCase(costStore, usageStore, internalNotifier)
 
-	// 4. 定期バッチスケジューラーの初期化 (JST タイムゾーン)
+	// 5. 定期バッチ・補正スケジューラーの初期化
 	var cronScheduler *scheduler.CronScheduler
 	if cfg.EnableInternalCron {
-		cronScheduler = scheduler.NewCronScheduler(batchUseCase)
+		cronScheduler = scheduler.NewCronSchedulerWithReconcile(batchUseCase, cfg.ReconcileIntervalSeconds)
 		cronScheduler.Start()
 	}
 
-	// 5. プレゼンテーション層（HTTP ハンドラ・ミドルウェア・レートリミッター）の初期化
-	rateLimiter := ratelimit.NewMemoryRateLimiter(cfg.RateLimitRPM)
-	rateLimitMiddleware := delivery.NewRateLimitMiddleware(rateLimiter, promMetrics)
+	// 6. プレゼンテーション層（HTTP ハンドラ・ミドルウェア）の初期化
 	authMiddleware := delivery.NewAuthMiddleware(authUseCase)
-	handler := delivery.NewHandler(chatUseCase, realtimeProxy, quotaRepo, authUseCase)
+	handler := delivery.NewHandler(chatUseCase, realtimeProxy, costStore, usageStore, authUseCase)
 	adminHandler := delivery.NewAdminHandler(adminUseCase, batchUseCase, cfg.AdminAPIKey)
 
-	// 6. ルーティング & Huma v2 (OpenAPI 3.1 & Scalar 自動生成) 設定
+	// 7. ルーティング & Huma v2 (OpenAPI 3.1 & Scalar 自動生成) 設定
 	mux := http.NewServeMux()
-	delivery.SetupHumaAPI(mux, handler, authMiddleware, adminHandler, cfg.DocsPath, cfg.OpenAPIPath, rateLimitMiddleware)
+	delivery.SetupHumaAPI(mux, handler, authMiddleware, adminHandler, cfg.DocsPath, cfg.OpenAPIPath)
 
 	// OpenAI 互換標準パスの直接ルーティング
-	standardChatHandler := authMiddleware.Wrap(rateLimitMiddleware.Wrap(handler.ChatCompletions))
+	standardChatHandler := authMiddleware.Wrap(handler.ChatCompletions)
 	mux.HandleFunc("/v1/chat/completions", standardChatHandler)
 	mux.HandleFunc("/v1/realtime", authMiddleware.Wrap(handler.Realtime))
 	mux.HandleFunc("/v1/usage", authMiddleware.Wrap(handler.GetKeyUsage))
@@ -93,7 +135,7 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// 7. サーバー起動
+	// 8. サーバー起動
 	go func() {
 		log.Printf("[INFO] Server listening on http://0.0.0.0:%s", cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -101,7 +143,7 @@ func main() {
 		}
 	}()
 
-	// 8. Graceful Shutdown
+	// 9. Graceful Shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	sig := <-quit
@@ -120,6 +162,13 @@ func main() {
 	// スケジューラーの安全停止
 	if cronScheduler != nil {
 		cronScheduler.Stop()
+	}
+
+	// キャッシュバッファのフラッシュ
+	if cachedStore != nil {
+		if err := cachedStore.Close(); err != nil {
+			log.Printf("[ERROR] Error flushing cached store: %v", err)
+		}
 	}
 
 	// ロガーのフラッシュ

@@ -915,6 +915,128 @@ func (m *memoryQuotaRepository) ListNotifications(ctx context.Context, limit int
 	return results, nil
 }
 
+func (r *dynamodbQuotaRepository) ReleaseLock(ctx context.Context, lockKey string) error {
+	pk := "LOCK#" + lockKey
+	sk := "LOCK"
+	_, err := r.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(r.tableName),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: pk},
+			"sk": &types.AttributeValueMemberS{Value: sk},
+		},
+	})
+	_ = r.fallback.ReleaseLock(ctx, lockKey)
+	return err
+}
+
+func (r *dynamodbQuotaRepository) GetServiceCost(ctx context.Context, serviceID, month string) (float64, int64, error) {
+	report, err := r.GetServiceMonthlyUsage(ctx, serviceID, month)
+	if err != nil {
+		return 0, 0, err
+	}
+	if report == nil {
+		return 0, 0, nil
+	}
+	return report.TotalCostUSD, report.TotalTokens, nil
+}
+
+func (r *dynamodbQuotaRepository) GetTenantCost(ctx context.Context, serviceID, tenantID, month string) (float64, int64, error) {
+	usage, err := r.GetTenantUsage(ctx, serviceID, tenantID, month)
+	if err != nil {
+		return 0, 0, err
+	}
+	if usage == nil {
+		return 0, 0, nil
+	}
+	return usage.TotalCost, usage.TotalTokens, nil
+}
+
+func (r *dynamodbQuotaRepository) IncrementCost(ctx context.Context, serviceID, tenantID, month string, promptTokens, completionTokens int64, cost float64) error {
+	return r.IncrementTenantUsage(ctx, serviceID, tenantID, month, "total", promptTokens, completionTokens, cost)
+}
+
+func (r *dynamodbQuotaRepository) ResetCost(ctx context.Context, serviceID, tenantID, month string, cost float64, tokens int64) error {
+	usage, err := r.GetTenantUsage(ctx, serviceID, tenantID, month)
+	if err != nil || usage == nil {
+		usage = &entity.TenantMonthlyUsage{
+			PK:        entity.BuildPK(serviceID, tenantID),
+			SK:        entity.BuildSK(month),
+			ServiceID: serviceID,
+			TenantID:  tenantID,
+			Month:     month,
+			Models:    make(map[string]*entity.ModelUsage),
+		}
+	}
+	usage.TotalCost = cost
+	usage.TotalTokens = tokens
+	usage.UpdatedAt = time.Now().UTC()
+	item, err := attributevalue.MarshalMap(usage)
+	if err != nil {
+		return err
+	}
+	_, err = r.client.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(r.tableName),
+		Item:      item,
+	})
+	_ = r.fallback.ResetCost(ctx, serviceID, tenantID, month, cost, tokens)
+	return err
+}
+
+func (r *dynamodbQuotaRepository) RecordUsage(ctx context.Context, serviceID, tenantID, month, model string, promptTokens, completionTokens int64, cost float64, pricingVersion string) error {
+	return r.IncrementTenantUsage(ctx, serviceID, tenantID, month, model, promptTokens, completionTokens, cost)
+}
+
+func (m *memoryQuotaRepository) ReleaseLock(ctx context.Context, lockKey string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.locks, lockKey)
+	return nil
+}
+
+func (m *memoryQuotaRepository) GetServiceCost(ctx context.Context, serviceID, month string) (float64, int64, error) {
+	report, err := m.GetServiceMonthlyUsage(ctx, serviceID, month)
+	if err != nil || report == nil {
+		return 0, 0, err
+	}
+	return report.TotalCostUSD, report.TotalTokens, nil
+}
+
+func (m *memoryQuotaRepository) GetTenantCost(ctx context.Context, serviceID, tenantID, month string) (float64, int64, error) {
+	usage, err := m.GetTenantUsage(ctx, serviceID, tenantID, month)
+	if err != nil || usage == nil {
+		return 0, 0, err
+	}
+	return usage.TotalCost, usage.TotalTokens, nil
+}
+
+func (m *memoryQuotaRepository) IncrementCost(ctx context.Context, serviceID, tenantID, month string, promptTokens, completionTokens int64, cost float64) error {
+	return m.IncrementTenantUsage(ctx, serviceID, tenantID, month, "total", promptTokens, completionTokens, cost)
+}
+
+func (m *memoryQuotaRepository) ResetCost(ctx context.Context, serviceID, tenantID, month string, cost float64, tokens int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pk := entity.BuildPK(serviceID, tenantID)
+	sk := entity.BuildSK(month)
+	key := pk + ":" + sk
+	usage, ok := m.tenantUsages[key]
+	if !ok {
+		usage = &entity.TenantMonthlyUsage{
+			PK: pk, SK: sk, ServiceID: serviceID, TenantID: tenantID, Month: month,
+			Models: make(map[string]*entity.ModelUsage),
+		}
+		m.tenantUsages[key] = usage
+	}
+	usage.TotalCost = cost
+	usage.TotalTokens = tokens
+	usage.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func (m *memoryQuotaRepository) RecordUsage(ctx context.Context, serviceID, tenantID, month, model string, promptTokens, completionTokens int64, cost float64, pricingVersion string) error {
+	return m.IncrementTenantUsage(ctx, serviceID, tenantID, month, model, promptTokens, completionTokens, cost)
+}
+
 func (m *memoryQuotaRepository) Ping(ctx context.Context) error {
 	return nil
 }

@@ -82,7 +82,7 @@ func TestStreamingClientDisconnect(t *testing.T) {
 	}))
 	defer upstreamServer.Close()
 
-	llmProxy := proxy.NewLLMProxy(nil, nil)
+	llmProxy := proxy.NewLLMProxy(nil, nil, nil, nil)
 	adapter := &mockTestAdapter{targetURL: upstreamServer.URL}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -143,7 +143,7 @@ func TestNonStreamingClientDisconnect(t *testing.T) {
 	}))
 	defer upstreamServer.Close()
 
-	llmProxy := proxy.NewLLMProxy(nil, nil)
+	llmProxy := proxy.NewLLMProxy(nil, nil, nil, nil)
 	adapter := &mockTestAdapter{targetURL: upstreamServer.URL}
 
 	ctx, cancel := context.WithCancel(context.Background())

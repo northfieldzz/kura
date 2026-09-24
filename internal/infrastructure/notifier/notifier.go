@@ -18,11 +18,11 @@ type Notifier interface {
 }
 
 type internalNotifier struct {
-	repo repository.QuotaRepository
+	repo repository.UsageStore
 }
 
-// NewInternalNotifier はアプリ内部（DynamoDB）に通知を保存し、標準ログにも出力する Notifier を生成する
-func NewInternalNotifier(repo repository.QuotaRepository) Notifier {
+// NewInternalNotifier はアプリ内部（UsageStore）に通知を保存し、標準ログにも出力する Notifier を生成する
+func NewInternalNotifier(repo repository.UsageStore) Notifier {
 	return &internalNotifier{
 		repo: repo,
 	}

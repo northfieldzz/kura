@@ -41,7 +41,7 @@ func TestChatUseCase_DisabledProvider(t *testing.T) {
 	openAI := &dummyAdapter{provider: service.ProviderAzure, enabled: false}
 	gemini := &dummyAdapter{provider: service.ProviderGemini, enabled: false}
 
-	llmProxy := proxy.NewLLMProxy(nil, nil)
+	llmProxy := proxy.NewLLMProxy(nil, nil, nil, nil)
 	uc := usecase.NewChatUseCase(openAI, llmProxy)
 	uc.RegisterAdapter("gemini", gemini)
 
@@ -85,7 +85,7 @@ func TestChatUseCase_DisabledProvider(t *testing.T) {
 
 func TestChatUseCase_AllowedModelsAccessControl(t *testing.T) {
 	openAI := &dummyAdapter{provider: service.ProviderAzure, enabled: true}
-	llmProxy := proxy.NewLLMProxy(nil, nil)
+	llmProxy := proxy.NewLLMProxy(nil, nil, nil, nil)
 	uc := usecase.NewChatUseCase(openAI, llmProxy)
 
 	tenantCtxWithRestrictions := &entity.TenantContext{

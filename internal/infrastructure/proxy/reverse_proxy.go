@@ -20,17 +20,28 @@ import (
 
 // LLMProxy は HTTP / SSE ストリーミングリバースプロキシ
 type LLMProxy struct {
-	transport   *http.Transport
-	usageLogger service.UsageLogger
-	quotaRepo   repository.QuotaRepository
-	metrics     *metrics.Metrics
+	transport     *http.Transport
+	usageLogger   service.UsageLogger
+	costStore     repository.CostStore
+	usageStore    repository.UsageStore
+	pricingEngine *entity.PricingEngine
+	metrics       *metrics.Metrics
 }
 
 // NewLLMProxy は LLMProxy インスタンスを生成する
-func NewLLMProxy(logger service.UsageLogger, quotaRepo repository.QuotaRepository, m ...*metrics.Metrics) *LLMProxy {
+func NewLLMProxy(
+	logger service.UsageLogger,
+	costStore repository.CostStore,
+	usageStore repository.UsageStore,
+	pricingEngine *entity.PricingEngine,
+	m ...*metrics.Metrics,
+) *LLMProxy {
 	var metricCollector *metrics.Metrics
 	if len(m) > 0 {
 		metricCollector = m[0]
+	}
+	if pricingEngine == nil {
+		pricingEngine = entity.DefaultEngine()
 	}
 	return &LLMProxy{
 		transport: &http.Transport{
@@ -39,9 +50,11 @@ func NewLLMProxy(logger service.UsageLogger, quotaRepo repository.QuotaRepositor
 			IdleConnTimeout:     90 * time.Second,
 			DisableCompression:  true, // SSE の即時転送とチャンク制御のため圧縮を無効化
 		},
-		usageLogger: logger,
-		quotaRepo:   quotaRepo,
-		metrics:     metricCollector,
+		usageLogger:   logger,
+		costStore:     costStore,
+		usageStore:    usageStore,
+		pricingEngine: pricingEngine,
+		metrics:       metricCollector,
 	}
 }
 
@@ -238,7 +251,11 @@ func (p *LLMProxy) handleStreaming(
 	// クレジット・費用計算 & 集計（途中で切断されてもトークン情報が取れていれば計上）
 	var cost float64
 	if totalTokens > 0 {
-		cost = entity.CalculateCost(reqObj.Model, promptTokens, completionTokens)
+		engine := p.pricingEngine
+		if engine == nil {
+			engine = entity.DefaultEngine()
+		}
+		cost, _ = engine.CalculateCost(reqObj.Model, promptTokens, completionTokens, 0, 0)
 		p.recordUsage(tenantCtx, reqObj.Model, promptTokens, completionTokens, totalTokens, cost)
 	}
 
@@ -329,10 +346,14 @@ func (p *LLMProxy) handleNonStreaming(
 	// クレジット・費用計算
 	var cost float64
 	if totalTokens > 0 {
-		cost = entity.CalculateCost(reqObj.Model, promptTokens, completionTokens)
+		engine := p.pricingEngine
+		if engine == nil {
+			engine = entity.DefaultEngine()
+		}
+		cost, _ = engine.CalculateCost(reqObj.Model, promptTokens, completionTokens, 0, 0)
 	}
 
-	// DynamoDB / インメモリ 利用量集計
+	// 利用量集計 (CostStore & UsageStore)
 	p.recordUsage(tenantCtx, reqObj.Model, promptTokens, completionTokens, totalTokens, cost)
 
 	// オブザーバビリティ ログ出力
@@ -375,18 +396,34 @@ func (p *LLMProxy) recordUsage(
 		tenantID = tenantCtx.TenantID
 	}
 
-	// 1. QuotaRepository (DynamoDB) への非同期集計 (serviceID が存在する場合のみ)
-	if p.quotaRepo != nil && totalTokens > 0 && serviceID != "" {
+	pricingVersion := "2026-09-24"
+	if p.pricingEngine != nil {
+		pricingVersion = p.pricingEngine.Version()
+	}
+
+	// 1. CostStore へのアトミック加算 (ホットパス・ソフトリミット)
+	if p.costStore != nil && totalTokens > 0 && serviceID != "" {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := p.quotaRepo.IncrementTenantUsage(ctx, serviceID, tenantID, currentMonth, model, promptTokens, completionTokens, cost); err != nil {
-				log.Printf("[ERROR] Failed to increment tenant usage in DynamoDB: %v", err)
+			if err := p.costStore.IncrementCost(ctx, serviceID, tenantID, currentMonth, promptTokens, completionTokens, cost); err != nil {
+				log.Printf("[ERROR] Failed to increment cost in CostStore: %v", err)
 			}
 		}()
 	}
 
-	// 2. UsageLogger への記録
+	// 2. UsageStore への詳細記録 (永続・集計用)
+	if p.usageStore != nil && totalTokens > 0 && serviceID != "" {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := p.usageStore.RecordUsage(ctx, serviceID, tenantID, currentMonth, model, promptTokens, completionTokens, cost, pricingVersion); err != nil {
+				log.Printf("[ERROR] Failed to record usage in UsageStore: %v", err)
+			}
+		}()
+	}
+
+	// 3. UsageLogger への記録
 	if p.usageLogger != nil {
 		event := entity.UsageLogEvent{
 			TeamID:           serviceID,

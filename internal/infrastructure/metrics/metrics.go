@@ -12,14 +12,18 @@ import (
 
 // Metrics は Prometheus メトリクス定義を保持する
 type Metrics struct {
-	Registry           *prometheus.Registry
-	RequestsTotal      *prometheus.CounterVec
-	TokensTotal        *prometheus.CounterVec
-	RequestDuration    *prometheus.HistogramVec
-	TimeToFirstToken   *prometheus.HistogramVec
-	EstimatedCostTotal *prometheus.CounterVec
-	RateLimitedTotal   *prometheus.CounterVec
-	ActiveRequests     prometheus.Gauge
+	Registry                    *prometheus.Registry
+	RequestsTotal               *prometheus.CounterVec
+	TokensTotal                 *prometheus.CounterVec
+	RequestDuration             *prometheus.HistogramVec
+	TimeToFirstToken            *prometheus.HistogramVec
+	EstimatedCostTotal          *prometheus.CounterVec
+	ActiveRequests              prometheus.Gauge
+	CacheHitsTotal              *prometheus.CounterVec
+	CacheMissesTotal            *prometheus.CounterVec
+	CacheNegativeRejectionsTotal *prometheus.CounterVec
+	CacheFlushCountTotal        prometheus.Counter
+	CacheBufferedCostUSD        prometheus.Gauge
 }
 
 // NewMetrics は Prometheus メトリクスおよび標準コレクターを初期化・登録する
@@ -82,20 +86,54 @@ func NewMetrics() *Metrics {
 			[]string{"model", "service_id"},
 		),
 
-		RateLimitedTotal: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: "kura",
-				Name:      "rate_limited_total",
-				Help:      "Total number of requests rejected by dynamic rate limiter (RPM)",
-			},
-			[]string{"service_id"},
-		),
-
 		ActiveRequests: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: "kura",
 				Name:      "active_requests",
 				Help:      "Number of currently active requests in flight",
+			},
+		),
+
+		CacheHitsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "kura",
+				Name:      "cache_hits_total",
+				Help:      "Total number of cache hits in Kura cache layer",
+			},
+			[]string{"type"},
+		),
+
+		CacheMissesTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "kura",
+				Name:      "cache_misses_total",
+				Help:      "Total number of cache misses in Kura cache layer",
+			},
+			[]string{"type"},
+		),
+
+		CacheNegativeRejectionsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "kura",
+				Name:      "cache_negative_rejections_total",
+				Help:      "Total number of requests rejected by local negative cache",
+			},
+			[]string{"service_id"},
+		),
+
+		CacheFlushCountTotal: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "kura",
+				Name:      "cache_flush_count_total",
+				Help:      "Total number of cache batch write flushes",
+			},
+		),
+
+		CacheBufferedCostUSD: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Namespace: "kura",
+				Name:      "cache_buffered_cost_usd",
+				Help:      "Total unflushed cost in USD in batch buffer",
 			},
 		),
 	}
@@ -106,8 +144,12 @@ func NewMetrics() *Metrics {
 		m.RequestDuration,
 		m.TimeToFirstToken,
 		m.EstimatedCostTotal,
-		m.RateLimitedTotal,
 		m.ActiveRequests,
+		m.CacheHitsTotal,
+		m.CacheMissesTotal,
+		m.CacheNegativeRejectionsTotal,
+		m.CacheFlushCountTotal,
+		m.CacheBufferedCostUSD,
 	)
 
 	return m
@@ -200,13 +242,45 @@ func (m *Metrics) RecordTokens(model string, prompt, completion, total int64, co
 	}
 }
 
-// RecordRateLimited はレートリミット拒絶 (429) を記録する
-func (m *Metrics) RecordRateLimited(serviceID string) {
-	if m == nil {
+// RecordCacheHit はキャッシュヒット数を記録する
+func (m *Metrics) RecordCacheHit(cacheType string) {
+	if m == nil || m.CacheHitsTotal == nil {
+		return
+	}
+	m.CacheHitsTotal.WithLabelValues(cacheType).Inc()
+}
+
+// RecordCacheMiss はキャッシュミス数を記録する
+func (m *Metrics) RecordCacheMiss(cacheType string) {
+	if m == nil || m.CacheMissesTotal == nil {
+		return
+	}
+	m.CacheMissesTotal.WithLabelValues(cacheType).Inc()
+}
+
+// RecordNegativeRejection はネガティブキャッシュによる拒否を記録する
+func (m *Metrics) RecordNegativeRejection(serviceID string) {
+	if m == nil || m.CacheNegativeRejectionsTotal == nil {
 		return
 	}
 	if serviceID == "" {
 		serviceID = "default"
 	}
-	m.RateLimitedTotal.WithLabelValues(serviceID).Inc()
+	m.CacheNegativeRejectionsTotal.WithLabelValues(serviceID).Inc()
+}
+
+// RecordCacheFlush はバッチフラッシュ実行を記録する
+func (m *Metrics) RecordCacheFlush() {
+	if m == nil || m.CacheFlushCountTotal == nil {
+		return
+	}
+	m.CacheFlushCountTotal.Inc()
+}
+
+// SetBufferedCost はバッファ中の未反映コストを設定する
+func (m *Metrics) SetBufferedCost(usd float64) {
+	if m == nil || m.CacheBufferedCostUSD == nil {
+		return
+	}
+	m.CacheBufferedCostUSD.Set(usd)
 }

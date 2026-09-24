@@ -22,7 +22,7 @@ func TestAdminUseCase_GetMonthlyUsage(t *testing.T) {
 		},
 	}
 
-	uc := NewAdminUseCase(repo)
+	uc := NewAdminUseCase(repo, repo)
 
 	// Missing service_id
 	_, err := uc.GetMonthlyUsage(context.Background(), "", "2026-09")
@@ -53,7 +53,7 @@ func TestAdminUseCase_SetTenantLimit(t *testing.T) {
 		},
 	}
 
-	uc := NewAdminUseCase(repo)
+	uc := NewAdminUseCase(repo, repo)
 
 	err := uc.SetTenantLimit(context.Background(), &SetLimitRequest{
 		ServiceID:   "ai-engine",

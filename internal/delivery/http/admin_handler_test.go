@@ -43,8 +43,9 @@ func (m *mockAdminUseCase) ListNotifications(ctx context.Context, limit int) ([]
 
 // mockBatchUseCase は BatchUseCase のモック
 type mockBatchUseCase struct {
-	runMonthlyReportFn func(ctx context.Context) error
-	runQuotaAlertsFn   func(ctx context.Context) error
+	runMonthlyReportFn  func(ctx context.Context) error
+	runQuotaAlertsFn    func(ctx context.Context) error
+	runReconciliationFn func(ctx context.Context) error
 }
 
 func (m *mockBatchUseCase) RunMonthlyReport(ctx context.Context) error {
@@ -57,6 +58,13 @@ func (m *mockBatchUseCase) RunMonthlyReport(ctx context.Context) error {
 func (m *mockBatchUseCase) RunQuotaAlerts(ctx context.Context) error {
 	if m.runQuotaAlertsFn != nil {
 		return m.runQuotaAlertsFn(ctx)
+	}
+	return nil
+}
+
+func (m *mockBatchUseCase) RunReconciliation(ctx context.Context) error {
+	if m.runReconciliationFn != nil {
+		return m.runReconciliationFn(ctx)
 	}
 	return nil
 }

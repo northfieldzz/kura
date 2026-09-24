@@ -42,7 +42,7 @@ func BenchmarkAuthenticateRequest(b *testing.B) {
 			}, nil
 		},
 	}
-	uc := NewAuthUseCase(repo)
+	uc := NewAuthUseCase(repo, repo)
 
 	req, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
 	req.Header.Set("X-Service-ID", "payment-service")

@@ -19,7 +19,6 @@ func TestMetrics_Handler(t *testing.T) {
 	m.RecordRequest("claude-3-5-sonnet", true, http.StatusOK, 1500*time.Millisecond, "team-beta")
 	m.RecordTokens("gpt-4o", 100, 50, 150, 0.0015, "team-alpha")
 	m.RecordTTFT("claude-3-5-sonnet", 300*time.Millisecond)
-	m.RecordRateLimited("team-gamma")
 	m.IncActive()
 	m.DecActive()
 
@@ -45,7 +44,6 @@ func TestMetrics_Handler(t *testing.T) {
 		"kura_request_duration_seconds",
 		"kura_time_to_first_token_seconds",
 		"kura_estimated_cost_usd_total",
-		"kura_rate_limited_total",
 		"kura_active_requests",
 		"go_goroutines", // Go コレクター
 	}
@@ -66,7 +64,6 @@ func TestMetrics_NilSafe(t *testing.T) {
 	m.RecordRequest("gpt-4o", false, 200, time.Second, "svc")
 	m.RecordTTFT("gpt-4o", time.Second)
 	m.RecordTokens("gpt-4o", 1, 1, 2, 0.01, "svc")
-	m.RecordRateLimited("svc")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)

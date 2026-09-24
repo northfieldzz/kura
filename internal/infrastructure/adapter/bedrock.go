@@ -1,0 +1,141 @@
+package adapter
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/domain/service"
+	"github.com/northfieldzz/kura/internal/infrastructure/config"
+)
+
+type bedrockAdapter struct {
+	cfg *config.Config
+}
+
+// NewBedrockAdapter は Amazon Bedrock (bedrock-mantle) 用アダプターを生成する
+func NewBedrockAdapter(cfg *config.Config) service.Adapter {
+	return &bedrockAdapter{cfg: cfg}
+}
+
+func (a *bedrockAdapter) Provider() service.ProviderType {
+	return service.ProviderBedrock
+}
+
+func (a *bedrockAdapter) IsEnabled() bool {
+	return a.cfg.BedrockAPIKey != "" || a.cfg.BedrockEndpoint != ""
+}
+
+func (a *bedrockAdapter) PrepareRequest(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request) (*http.Request, error) {
+	if !a.IsEnabled() {
+		return nil, fmt.Errorf("amazon bedrock (bedrock-mantle) is not configured (missing API key or endpoint)")
+	}
+
+	modelID := strings.TrimPrefix(origReq.Model, "bedrock/")
+	if modelID == "" {
+		modelID = "amazon.titan-text-express-v1"
+	}
+	origReq.Model = modelID
+
+	region := a.cfg.BedrockRegion
+	if region == "" {
+		region = a.cfg.AWSRegion
+	}
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	baseEndpoint := strings.TrimRight(a.cfg.BedrockEndpoint, "/")
+	if baseEndpoint == "" {
+		baseEndpoint = fmt.Sprintf("https://bedrock-mantle.%s.api.aws", region)
+	}
+
+	var targetURL string
+	if strings.HasSuffix(baseEndpoint, "/chat/completions") {
+		targetURL = baseEndpoint
+	} else if strings.HasSuffix(baseEndpoint, "/v1") {
+		targetURL = fmt.Sprintf("%s/chat/completions", baseEndpoint)
+	} else {
+		targetURL = fmt.Sprintf("%s/v1/chat/completions", baseEndpoint)
+	}
+
+	// ストリーミング時に usage 情報を強制取得
+	if origReq.Stream {
+		if origReq.ExtraFields == nil {
+			origReq.ExtraFields = make(map[string]any)
+		}
+		origReq.ExtraFields["stream_options"] = map[string]any{
+			"include_usage": true,
+		}
+	}
+
+	reqBody, err := origReq.ToMergedJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare request body: %w", err)
+	}
+
+	newReq, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+
+	newReq.Header.Set("Content-Type", "application/json")
+	if a.cfg.BedrockAPIKey != "" {
+		newReq.Header.Set("Authorization", "Bearer "+a.cfg.BedrockAPIKey)
+		newReq.Header.Set("x-api-key", a.cfg.BedrockAPIKey)
+	}
+
+	// クライアントのカスタムヘッダーを透過
+	for k, v := range httpReq.Header {
+		if strings.HasPrefix(strings.ToLower(k), "x-") {
+			newReq.Header[k] = v
+		}
+	}
+
+	return newReq, nil
+}
+
+func (a *bedrockAdapter) ExtractUsageFromResponse(body []byte) (*entity.UsageInfo, error) {
+	var fastResp struct {
+		Usage *entity.UsageInfo `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &fastResp); err != nil {
+		return nil, err
+	}
+	return fastResp.Usage, nil
+}
+
+var bedrockUsageBytes = []byte(`"usage"`)
+
+func (a *bedrockAdapter) ExtractUsageFromChunk(chunk []byte) (*entity.UsageInfo, error) {
+	if !bytes.Contains(chunk, bedrockUsageBytes) {
+		return nil, nil
+	}
+
+	trimmed := bytes.TrimSpace(chunk)
+	if !bytes.HasPrefix(trimmed, []byte("data:")) {
+		return nil, nil
+	}
+	data := bytes.TrimSpace(bytes.TrimPrefix(trimmed, []byte("data:")))
+	if bytes.Equal(data, []byte("[DONE]")) || len(data) == 0 {
+		return nil, nil
+	}
+
+	var streamChunk entity.ChatCompletionChunk
+	if err := json.Unmarshal(data, &streamChunk); err != nil {
+		return nil, nil
+	}
+	return streamChunk.Usage, nil
+}
+
+func (a *bedrockAdapter) NormalizeResponse(statusCode int, body []byte) ([]byte, error) {
+	return body, nil
+}
+
+func (a *bedrockAdapter) NormalizeSSEChunk(chunk []byte) ([][]byte, error) {
+	return [][]byte{chunk}, nil
+}

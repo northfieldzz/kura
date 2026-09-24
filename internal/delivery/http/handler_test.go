@@ -48,8 +48,26 @@ func (m *mockQuotaRepoForHealth) SetServiceConfig(ctx context.Context, cfg *enti
 func (m *mockQuotaRepoForHealth) GetServiceMonthlyUsage(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error) {
 	return nil, nil
 }
+func (m *mockQuotaRepoForHealth) GetServiceCost(ctx context.Context, serviceID, month string) (float64, int64, error) {
+	return 0, 0, nil
+}
+func (m *mockQuotaRepoForHealth) GetTenantCost(ctx context.Context, serviceID, tenantID, month string) (float64, int64, error) {
+	return 0, 0, nil
+}
+func (m *mockQuotaRepoForHealth) IncrementCost(ctx context.Context, serviceID, tenantID, month string, promptTokens, completionTokens int64, cost float64) error {
+	return nil
+}
+func (m *mockQuotaRepoForHealth) ResetCost(ctx context.Context, serviceID, tenantID, month string, cost float64, tokens int64) error {
+	return nil
+}
+func (m *mockQuotaRepoForHealth) RecordUsage(ctx context.Context, serviceID, tenantID, month, model string, promptTokens, completionTokens int64, cost float64, pricingVersion string) error {
+	return nil
+}
 func (m *mockQuotaRepoForHealth) AcquireLock(ctx context.Context, lockKey string, ttlSeconds int64) (bool, error) {
 	return true, nil
+}
+func (m *mockQuotaRepoForHealth) ReleaseLock(ctx context.Context, lockKey string) error {
+	return nil
 }
 func (m *mockQuotaRepoForHealth) GetAllTenantsUsageByMonth(ctx context.Context, month string) ([]*entity.TenantMonthlyUsage, error) {
 	return nil, nil
@@ -65,7 +83,7 @@ func (m *mockQuotaRepoForHealth) Ping(ctx context.Context) error {
 }
 
 func TestLivenessProbe(t *testing.T) {
-	h := delivery.NewHandler(nil, nil, nil)
+	h := delivery.NewHandler(nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/livez", nil)
 	rec := httptest.NewRecorder()
@@ -87,7 +105,7 @@ func TestLivenessProbe(t *testing.T) {
 
 func TestReadinessProbe_Normal(t *testing.T) {
 	mockRepo := &mockQuotaRepoForHealth{pingErr: nil}
-	h := delivery.NewHandler(nil, nil, mockRepo)
+	h := delivery.NewHandler(nil, nil, mockRepo, mockRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
@@ -112,7 +130,7 @@ func TestReadinessProbe_Normal(t *testing.T) {
 
 func TestReadinessProbe_ShuttingDown(t *testing.T) {
 	mockRepo := &mockQuotaRepoForHealth{pingErr: nil}
-	h := delivery.NewHandler(nil, nil, mockRepo)
+	h := delivery.NewHandler(nil, nil, mockRepo, mockRepo)
 
 	// シャットダウン状態へ遷移
 	h.SetShuttingDown(true)
@@ -137,7 +155,7 @@ func TestReadinessProbe_ShuttingDown(t *testing.T) {
 
 func TestReadinessProbe_DatabaseError(t *testing.T) {
 	mockRepo := &mockQuotaRepoForHealth{pingErr: errors.New("dynamodb connection lost")}
-	h := delivery.NewHandler(nil, nil, mockRepo)
+	h := delivery.NewHandler(nil, nil, mockRepo, mockRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
@@ -181,7 +199,7 @@ func TestGetKeyUsage(t *testing.T) {
 			ServiceRemainingUSD: 80.0,
 		},
 	}
-	h := delivery.NewHandler(nil, nil, nil, mockAuth)
+	h := delivery.NewHandler(nil, nil, nil, nil, mockAuth)
 
 	// Case 1: Unauthorized (no context)
 	reqUnauth := httptest.NewRequest(http.MethodGet, "/v1/usage", nil)

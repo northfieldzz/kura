@@ -30,7 +30,7 @@ func BenchmarkStreamingProxy_ServeForward(b *testing.B) {
 	defer upstreamServer.Close()
 
 	m := metrics.NewMetrics()
-	p := proxy.NewLLMProxy(nil, nil, m)
+	p := proxy.NewLLMProxy(nil, nil, nil, nil, m)
 
 	tenantCtx := &entity.TenantContext{
 		ServiceID: "bench-service",

@@ -64,13 +64,57 @@ func (m *mockQuotaRepo) GetServiceConfigs(ctx context.Context, serviceIDs []stri
 	return nil, nil
 }
 func (m *mockQuotaRepo) GetServiceConfig(ctx context.Context, serviceID string) (*entity.ServiceConfig, error) {
+	if m.getServiceUsageFn != nil {
+		report, _ := m.getServiceUsageFn(ctx, serviceID, entity.CurrentMonthJST())
+		if report != nil && (report.CostLimit > 0 || report.BillingType != "") {
+			bType := entity.BillingTypePAYG
+			if report.BillingType == "capped" || report.CostLimit > 0 {
+				bType = entity.BillingTypeCapped
+			}
+			return &entity.ServiceConfig{
+				ServiceID:   serviceID,
+				CostLimit:   report.CostLimit,
+				BillingType: string(bType),
+			}, nil
+		}
+	}
 	return nil, nil
 }
 func (m *mockQuotaRepo) SetServiceConfig(ctx context.Context, cfg *entity.ServiceConfig) error {
 	return nil
 }
+func (m *mockQuotaRepo) GetServiceCost(ctx context.Context, serviceID, month string) (float64, int64, error) {
+	if m.getServiceUsageFn != nil {
+		report, _ := m.getServiceUsageFn(ctx, serviceID, month)
+		if report != nil {
+			return report.TotalCostUSD, report.TotalTokens, nil
+		}
+	}
+	return 0, 0, nil
+}
+func (m *mockQuotaRepo) GetTenantCost(ctx context.Context, serviceID, tenantID, month string) (float64, int64, error) {
+	if m.getTenantUsageFn != nil {
+		usage, _ := m.getTenantUsageFn(ctx, serviceID, tenantID, month)
+		if usage != nil {
+			return usage.TotalCost, usage.TotalTokens, nil
+		}
+	}
+	return 0, 0, nil
+}
+func (m *mockQuotaRepo) IncrementCost(ctx context.Context, serviceID, tenantID, month string, promptTokens, completionTokens int64, cost float64) error {
+	return nil
+}
+func (m *mockQuotaRepo) ResetCost(ctx context.Context, serviceID, tenantID, month string, cost float64, tokens int64) error {
+	return nil
+}
+func (m *mockQuotaRepo) RecordUsage(ctx context.Context, serviceID, tenantID, month, model string, promptTokens, completionTokens int64, cost float64, pricingVersion string) error {
+	return nil
+}
 func (m *mockQuotaRepo) AcquireLock(ctx context.Context, lockKey string, ttlSeconds int64) (bool, error) {
 	return true, nil
+}
+func (m *mockQuotaRepo) ReleaseLock(ctx context.Context, lockKey string) error {
+	return nil
 }
 func (m *mockQuotaRepo) GetAllTenantsUsageByMonth(ctx context.Context, month string) ([]*entity.TenantMonthlyUsage, error) {
 	return nil, nil
@@ -132,7 +176,7 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 		},
 	}
 
-	uc := NewAuthUseCase(repo)
+	uc := NewAuthUseCase(repo, repo)
 
 	// Case 1: Valid PAYG request with X-Service-ID and headers
 	req, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
@@ -267,15 +311,15 @@ func TestAuthUseCase_AuthenticateRequest(t *testing.T) {
 	}
 
 	// Case 9: EnforceTollgateAuth = true -> rejects when X-Key-ID is missing (401 missing_tollgate_headers)
-	ucEnforced := NewAuthUseCaseWithConfig(repo, AuthUseCaseConfig{
+	ucEnforced := NewAuthUseCaseWithConfig(repo, repo, AuthUseCaseConfig{
 		EnforceTollgateAuth: true,
 	})
 	reqDenied, _ := http.NewRequest("POST", "/v1/chat/completions", nil)
 	reqDenied.Header.Set("X-Service-ID", "ai-engine")
 	reqDenied.Header.Set("X-Tenant-ID", "tenant-demo")
 	_, errDenied := ucEnforced.AuthenticateRequest(context.Background(), reqDenied)
-	if errDenied == nil || errDenied.Err.VendorOriginalCode != "missing_tollgate_headers" {
-		t.Errorf("expected 401 missing_tollgate_headers error when EnforceTollgateAuth=true without X-Key-ID, got: %v", errDenied)
+	if errDenied == nil || errDenied.Err.VendorOriginalCode != "missing_gateway_headers" {
+		t.Errorf("expected 401 missing_gateway_headers error when EnforceTollgateAuth=true without X-Key-ID, got: %v", errDenied)
 	}
 
 	// Case 10: EnforceTollgateAuth = true -> passes when X-Service-ID, X-Tenant-ID, and X-Key-ID are provided
@@ -330,7 +374,7 @@ func TestAuthUseCase_GetKeyUsageSummary(t *testing.T) {
 		},
 	}
 
-	uc := NewAuthUseCase(repo)
+	uc := NewAuthUseCase(repo, repo)
 
 	// Case 1: Capped Service with AllowedModels
 	tenantCtx := &entity.TenantContext{

@@ -18,13 +18,14 @@ import (
 type Handler struct {
 	chatUseCase    usecase.ChatUseCase
 	realtimeProxy  *websocket.RealtimeProxy
-	quotaRepo      repository.QuotaRepository
+	costStore      repository.CostStore
+	usageStore     repository.UsageStore
 	authUseCase    usecase.AuthUseCase
 	isShuttingDown atomic.Bool
 }
 
 // NewHandler は Handler インスタンスを生成する
-func NewHandler(chatUseCase usecase.ChatUseCase, realtimeProxy *websocket.RealtimeProxy, quotaRepo repository.QuotaRepository, authUseCase ...usecase.AuthUseCase) *Handler {
+func NewHandler(chatUseCase usecase.ChatUseCase, realtimeProxy *websocket.RealtimeProxy, costStore repository.CostStore, usageStore repository.UsageStore, authUseCase ...usecase.AuthUseCase) *Handler {
 	var auc usecase.AuthUseCase
 	if len(authUseCase) > 0 {
 		auc = authUseCase[0]
@@ -32,7 +33,8 @@ func NewHandler(chatUseCase usecase.ChatUseCase, realtimeProxy *websocket.Realti
 	return &Handler{
 		chatUseCase:   chatUseCase,
 		realtimeProxy: realtimeProxy,
-		quotaRepo:     quotaRepo,
+		costStore:     costStore,
+		usageStore:    usageStore,
 		authUseCase:   auc,
 	}
 }
@@ -71,14 +73,28 @@ func (h *Handler) Readiness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.quotaRepo != nil {
+	if h.costStore != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
-		if err := h.quotaRepo.Ping(ctx); err != nil {
+		if err := h.costStore.Ping(ctx); err != nil {
 			WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
 				"status":  "degraded",
-				"message": "database health check failed",
+				"message": "cost store health check failed",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+
+	if h.usageStore != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		if err := h.usageStore.Ping(ctx); err != nil {
+			WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"status":  "degraded",
+				"message": "usage store health check failed",
 				"error":   err.Error(),
 			})
 			return

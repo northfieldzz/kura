@@ -14,6 +14,7 @@ const (
 	ProviderOpenAI    ProviderType = "openai"
 	ProviderAzure     ProviderType = "azure"
 	ProviderGemini    ProviderType = "gemini"
+	ProviderBedrock   ProviderType = "bedrock"
 	ProviderRealtime  ProviderType = "realtime"
 )
 

@@ -8,8 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/domain/service"
-	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
 	"github.com/northfieldzz/kura/internal/usecase"
 )
 
@@ -82,72 +80,3 @@ func GetRequestIDFromContext(ctx context.Context) string {
 	return ""
 }
 
-// RateLimitMiddleware はテナント/キー単位のオンデマンドなレート制限（RPM）を担う HTTP ミドルウェア
-type RateLimitMiddleware struct {
-	limiter service.RateLimiter
-	metrics *metrics.Metrics
-}
-
-// NewRateLimitMiddleware は RateLimitMiddleware を生成する
-func NewRateLimitMiddleware(limiter service.RateLimiter, m ...*metrics.Metrics) *RateLimitMiddleware {
-	var metricCollector *metrics.Metrics
-	if len(m) > 0 {
-		metricCollector = m[0]
-	}
-	return &RateLimitMiddleware{limiter: limiter, metrics: metricCollector}
-}
-
-// Wrap は HTTP ハンドラをレート制限判定でラップする
-func (m *RateLimitMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if m.limiter == nil {
-			next(w, r)
-			return
-		}
-
-		// レート制限キーの特定: 優先度 1: TenantID, 2: ServiceID, 3: RemoteIP
-		limitKey := "default"
-		if tc := GetTenantContextFromContext(r.Context()); tc != nil {
-			if tc.TenantID != "" && tc.TenantID != "default" {
-				limitKey = "tenant:" + tc.TenantID
-			} else if tc.ServiceID != "" {
-				limitKey = "svc:" + tc.ServiceID
-			}
-		} else {
-			// 認証前または未認証時は IP
-			limitKey = "ip:" + r.RemoteAddr
-		}
-
-		allowed, remaining, retryAfter, limit, err := m.limiter.Allow(r.Context(), limitKey)
-		if err != nil {
-			// レート制限エラー時もフォールスルー（可用性優先）
-			next(w, r)
-			return
-		}
-
-		if limit > 0 {
-			w.Header().Set("X-RateLimit-Limit-RPM", strconv.Itoa(limit))
-			w.Header().Set("X-RateLimit-Remaining-RPM", strconv.Itoa(remaining))
-		}
-
-		if !allowed {
-			serviceID := "default"
-			if tc := GetTenantContextFromContext(r.Context()); tc != nil && tc.ServiceID != "" {
-				serviceID = tc.ServiceID
-			}
-			m.metrics.RecordRateLimited(serviceID)
-
-			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds()+1)))
-			WriteError(w, entity.NewStandardError(
-				http.StatusTooManyRequests,
-				entity.ErrorTypeRateLimitExceeded,
-				fmt.Sprintf("Rate limit exceeded for %s. Limit: %d req/min. Please retry after %d seconds.",
-					limitKey, limit, int(retryAfter.Seconds()+1)),
-				"rate_limit_exceeded",
-			))
-			return
-		}
-
-		next(w, r)
-	}
-}

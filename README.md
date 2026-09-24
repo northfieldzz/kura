@@ -1,40 +1,192 @@
 # Kura — Lightweight Multi-Tenant LLM Gateway
 
-[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8.svg?style=flat&logo=go)](https://go.dev/)
-[![Huma v2](https://img.shields.io/badge/Huma-v2-8A2BE2.svg?style=flat)](https://huma.rocks/)
-[![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1-6BA539.svg?style=flat&logo=openapiinitiative)](https://spec.openapis.org/oas/v3.1.0)
-[![AWS DynamoDB](https://img.shields.io/badge/AWS-DynamoDB-4053D6.svg?style=flat&logo=amazondynamodb)](https://aws.amazon.com/dynamodb/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?style=flat&logo=docker)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
+[![Huma v2](https://img.shields.io/badge/Huma-v2.39+-8A2BE2.svg)](https://huma.rocks/)
+[![Storage](https://img.shields.io/badge/Storage-SQLite%20%7C%20DynamoDB%20%7C%20PostgreSQL%20%7C%20Valkey-4053D6.svg)](https://github.com/northfieldzz/kura)
+[![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C.svg?logo=prometheus)](https://prometheus.io/)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-6BA539.svg?logo=openapiinitiative)](https://spec.openapis.org/oas/v3.1.0)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 
-**Kura** は、マルチテナント・複数プロダクト環境における大規模言語モデル（Microsoft Foundry / Azure OpenAI、Google Gemini 等）へのアクセスを一元管理・中継する、超軽量・極低レイテンシーな LLM API ゲートウェイです。
+**Kura** は、マルチテナント・複数プロダクト環境における大規模言語モデル（Microsoft Foundry / Azure OpenAI、Google Gemini、Amazon Bedrock 等）へのアクセスを一元管理・中継する、超軽量・極低レイテンシーな LLM API ゲートウェイである。
 
-Standard Go Project Layout（クリーンアーキテクチャ）を採用し、OpenAI 互換インターフェース、リアルタイムなクォータ・コストガード、仮想モデルルーティング、国内データレジデンシーをミニマルかつ高パフォーマンスに提供します。
+Kura は独立した LLM ゲートウェイとして単体で運用できるほか、前段に認証プロキシや API ゲートウェイ（Kong, Envoy, AWS API Gateway, 自前認証層、または姉妹プロジェクトの [**Tollgate**](https://github.com/northfieldzz/tollgate) 等）を配置して組み合わせることも可能である。Kura 自身は上流プロバイダーへの安全なルーティング、マルチコンテナ環境でのリアルタイムなコストガード（ソフトリミット）、仮想モデルエイリアス解決、国内データレジデンシー制御に専念する。分間リクエスト制限（RPM）などのレート制限は前段ゲートウェイの責務として分離している。
+
+> [!IMPORTANT]
+> Kura はリクエストヘッダー（`X-Service-ID`, `X-Tenant-ID` 等）を信頼してテナント解決およびクォータ制御を行う設計である。一般 API ではクライアント Bearer キー等の署名・認証検証を行わないため、クライアントからのヘッダーを検証・上書きする認証層なしにパブリックインターネットへ直接公開してはならない。
+
+---
+
+## 運用モード
+
+Kura はシステムのセキュリティ要件やネットワーク構成に応じて、以下の 2 つの運用形態に対応している。
+
+| 運用形態 | 適用シナリオ | 認証・ヘッダー解決の仕組み |
+| :--- | :--- | :--- |
+| **単体運用**<br/>(Standalone) | 信頼されたプライベートネットワーク（同一 VPC 内のマイクロサービス間通信、社内開発環境など） | クライアントが直接 `X-Service-ID` および `X-Tenant-ID` を付与してリクエストする。Kura はヘッダーの存在確認とクォータ判定のみを行い、キー検証は行わない。 |
+| **認証ゲートウェイ併用**<br/>(Gateway-Backed) | パブリックインターネット境界、ゼロトラスト環境、エンドユーザー/テナントへの API キー直接配布 | 前段に認証ゲートウェイ（Tollgate, Kong, 自前プロキシ等）を配置。前段で API キー・JWT を検証した上で、正しいテナント識別ヘッダーを安全に付与して Kura へ転送する。 |
+
+---
+
+## Kura の位置づけ
+
+既存の LLM ゲートウェイ・プロキシ製品と比較した Kura の主な位置づけは以下の通りである。
+
+| 項目 | Kura | LiteLLM | Cloudflare AI Gateway |
+| :--- | :--- | :--- | :--- |
+| **言語 / ランタイム** | Go（単一バイナリ、純 Go SQLite 内蔵、極低フットプリント） | Python（FastAPI） | 独自ワーカー基盤（Cloudflare Edge） |
+| **ホスティング形態** | セルフホスト（Docker / Kubernetes / ECS / 単一バイナリ） | セルフホスト / SaaS | SaaS 専用（エッジ基盤依存） |
+| **マルチテナント・予算制御** | ストア抽象化（SQLite / DynamoDB / Valkey / PostgreSQL）によるリアルタイム月次予算ソフトリミット遮断 | 仮想キー・月次/日次クォータ | キャッシュ・レートリミット中心 |
+| **前段認証ゲートウェイ連携** | 透過ヘッダー信頼設計（自前プロキシ / Tollgate 等と柔軟に連携） | 独自認証テーブル内蔵 | Cloudflare アカウント認証 |
+| **対応プロバイダー** | Microsoft Foundry (Azure OpenAI, Claude), Google Gemini, Amazon Bedrock (Mantle) | 100+ プロバイダー（幅広さ重視） | 主要プロバイダー |
 
 ---
 
 ## 主な機能
 
 - **OpenAI 互換プロキシ (`/v1/chat/completions`)**:
-  - 単一のエンドポイントで各種プロバイダー（Microsoft Foundry, Google Gemini）を中継。
+  - 単一のエンドポイントで各種プロバイダー（Microsoft Foundry, Google Gemini, Amazon Bedrock）を中継。
   - 完全非バッファリングの SSE ストリーミング対応。最終フレームから正確なトークン使用量をリアルタイムインターセプト。
   - 各ベンダーの新機能パラメータ（`thinking`, `reasoning_effort` 等）を未知パラメータとしてそのまま透過。
+- **ストア抽象化 & リアルタイムコストガード**:
+  - **コスト管理ストア**（ホットパス。残枠確認とアトミック加算）と**集計結果ストア**（永続。実績記録・月次レポート・分散ロック）の役割分離。
+  - SQLite（既定・単一ノード向け標準）、DynamoDB、Valkey / Redis、PostgreSQL に対応。
+  - 応答完了後にトークン実測値からコストを加算し、月間上限到達後の次回リクエストから自動遮断するソフトリミット方式。
+  - Valkey / Redis 運用時の整合性を担保する自律・手動の補正（Reconciliation）エンジン。
+- **インメモリキャッシュ層（デコレーター）**:
+  - DynamoDB / Valkey / PostgreSQL 向けにホットパスの負荷を削減するキャッシュデコレーターを内包（SQLite では自動バイパス）。
+  - 遮断済みテナントのネガティブキャッシュ、設定キャッシュ、残枠キャッシュ、加算バッチ書き込みを提供。
+- **JSON 単価表エンジン (`pricing.json`)**:
+  - モデル別単価（入力/出力/キャッシュ入力/推論トークン）を外部 JSON ファイルで定義・管理。バージョン追跡と未定義モデルポリシー制御。
 - **仮想モデルエイリアス (Routing & Fallback)**:
-  - アプリ側コードを変更せずに、`fast` / `default` (`gpt-5.4-mini`)、`smart` (`claude-3-5-sonnet`)、`flash` (`gemini-2.5-flash`) などの共通エイリアスで裏側のモデルを柔軟に切り替え。
-- **確実なコストガード & マルチテナント制御**:
-  - Amazon DynamoDB（Single Table Design）によるミリ秒単位のアトミックなトークン・コスト集計（インメモリフォールバック対応）。
-  - 月間予算上限到達時の即時自動遮断 (`429 Too Many Requests`)。
-  - テナント・サービス単位のオンデマンドな分間リクエスト制御（RPM スライディングウィンドウ）。
+  - アプリ側コードを変更せずに、`fast` / `default` (`gpt-5.4-mini`)、`smart` (`claude-3-5-sonnet`)、`flash` (`gemini-1.5-flash`) などの共通エイリアスで裏側のモデルを柔軟に切り替え。
 - **リアルタイム通信**:
   - `/v1/realtime` の WebSocket 双方向パススルー中継。
 - **メタデータ・透過タグ収集**:
   - 事前マスタ定義なしで、`X-Environment`, `X-Feature`, `X-Tags` ヘッダーを自動収集し非同期構造化ログに付与。
+- **自律的バックグラウンド処理 & アラート**:
+  - 内蔵スケジューラーと分散ロックによる完全自律型の月次締めレポート集計・クォータ残量低下アラート・残高補正ジョブ（外部バッチ不要）。
 - **クラウドネイティブ運用**:
   - `/healthz`（総合）、`/livez`（Liveness）、`/readyz`（Readiness）プローブによる Kubernetes / ECS 完全適合。
-  - `/metrics` による Prometheus パフォーマンス・コストメトリクス公開。
-  - 内蔵 Goroutine と DynamoDB 分散ロックによる完全自律型の月次集計・Slack アラート通知（外部バッチ不要）。
+  - `/metrics` による Prometheus パフォーマンス・コスト・キャッシュメトリクス公開。
 - **Scalar API ドキュメント & OpenAPI 3.1 自動生成**:
   - Huma v2 により、最新の対話的 API ドキュメント（Scalar）と OpenAPI 3.1 スキーマを起動時に自動生成。
+
+---
+
+## ストレージ構成
+
+Kura はマルチコンテナでの水平スケールと高スループットを実現するため、ストアの役割を「**コスト管理ストア**」と「**集計結果ストア**」の 2 つに分離している。
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       Kura LLM Gateway                      │
+├──────────────────────────────┬──────────────────────────────┤
+│ コスト管理ストア (ホットパス)   │ 集計結果ストア (永続・分析)    │
+│ ・残枠の高速確認 (ソフトリミット)│ ・利用実績の正のデータ記録    │
+│ ・トークン・費用の加算        │ ・月次レポート集計・分散ロック │
+└──────────────┬───────────────┴──────────────┬───────────────┘
+               ▼                              ▼
+      [ SQLite / DynamoDB / Valkey ]  [ SQLite / DynamoDB / PostgreSQL ]
+               │                              │
+               └──────── 補正 (Reconcile) ────┘
+```
+
+### 推奨構成一覧
+
+| 用途 | 推奨構成 | 特徴 |
+| :--- | :--- | :--- |
+| **試用・開発・単一ノード** | **SQLite（既定）** | 外部 DB 不要。単一バイナリ・1 つのファイルで再起動後もデータが残る。 |
+| **マルチコンテナ・厳密** | **DynamoDB** | 水平スケール、アトミック更新による高スループットと完全な永続性。 |
+| **マルチコンテナ・速度優先** | **Valkey / Redis**（コスト管理）+ 補正<br/>**PostgreSQL 等**（集計結果） | サブミリ秒の極低レイテンシーとリレーショナルな月次レポート集計。 |
+
+### 対応バックエンド詳細
+
+環境変数 `COST_STORE` および `USAGE_STORE` で各ストアの種別を独立して指定できる（未指定時は両方 `sqlite` が既定）。
+
+| 役割 | 対応バックエンド | 特徴・注意点 |
+| :--- | :--- | :--- |
+| **コスト管理ストア**<br/>(`COST_STORE`) | **sqlite** | **既定・単一ノード標準**。CGO 不要の純 Go 実装。単一インスタンス専用（マルチコンテナ不可）。 |
+| | **dynamodb** | **マルチコンテナ推奨**。アトミック更新による高スループットと完全な永続性を提供。 |
+| | **valkey** / **redis** | **高速**。サブミリ秒の極低レイテンシー。下記の**補正機能**とセットで運用する。 |
+| | **postgres** | **非推奨**。ホット行への更新競合とレイテンシの観点から推奨されない（起動時に警告ログを出力）。 |
+| **集計結果ストア**<br/>(`USAGE_STORE`) | **sqlite** | **既定・単一ノード標準**。単一ファイルに時系列利用実績・月次レポート・ロックを永続化。 |
+| | **dynamodb** | **マルチコンテナ推奨**。Single Table Design による時系列利用実績の永続化。 |
+| | **postgres** | **マルチコンテナ推奨**。リレーショナル構造による月次レポート集計とロック。 |
+
+> [!NOTE]
+> - **SQLite の単一インスタンス制約**: SQLite はファイルロックを用いるため、複数コンテナからの同時マウント・並行書き込みには対応していない。マルチコンテナでスケールさせる場合は DynamoDB または Valkey + PostgreSQL / DynamoDB を使用すること。
+> - **不正な組み合わせの検知**: 起動時にストアの組み合わせを検証し、不正な構成（例: 集計結果ストアに Valkey / Redis を指定するなど、集計クエリが実行できない構成）は起動時に即座にエラーで終了（Fail-Fast）する。
+> - **`memory` 設定の廃止**: `memory` は本番設定の選択肢から外され、テスト専用パッケージへ移行した。環境変数で `memory` を指定すると起動を拒否する。
+
+### 補正 (Reconciliation) 機能
+
+コスト管理ストアに Valkey / Redis を使用する場合、インスタンスのフェイルオーバーや再起動によってメモリ上のカウンタが失われる可能性がある。Kura は集計結果ストアの実績データから当月の利用累計を再集計し、コスト管理ストアの残高を自動再構築・同期する補正機能を備えている。
+
+- **自動実行**: 起動時、および一定間隔（環境変数 `RECONCILE_INTERVAL_SECONDS`、デフォルト 300 秒）でバックグラウンド実行される。
+- **排他制御**: 複数コンテナが同時に補正を実行しないよう、集計結果ストアの分散ロック（DynamoDB ロックまたは PostgreSQL / SQLite ロック）を獲得して安全に実行する。
+- **手動実行**: 管理 API（`POST /v1/admin/jobs/reconcile`）から即時補正をトリガー可能である。
+
+---
+
+## キャッシュ層 (Cache Layer)
+
+マルチコンテナ運用時（DynamoDB / Valkey / PostgreSQL）、ホットパスでのストア負荷を軽減し極低レイテンシーを実現するため、ストアインターフェースをラップする**キャッシュデコレーター**を内包している。
+
+※ SQLite バックエンド使用時は、単一ノード前提のためキャッシュ層は自動的にバイパスされる。
+
+### キャッシュ対象と仕様
+
+1. **遮断済みテナントのネガティブキャッシュ**
+   - ストアが「予算超過」と判定したテナントをローカルメモリに記憶し、以降のリクエストはストアへの問い合わせを行わずに即座に `429 Too Many Requests` で拒絶する。
+   - **保持期間 (TTL)**: **予算期間の終了時刻（当月末）と最大 TTL（`CACHE_NEGATIVE_TTL_SECONDS`、既定 300 秒）のうち短い方**。
+   - **即時無効化**: 同一インスタンスで Admin API による予算変更・リセットが行われた場合は、該当エントリを即時に無効化する。他コンテナへは TTL 経過後に反映される。
+2. **テナント / サービス設定の読み取りキャッシュ**
+   - 予算額や許可モデルなどの永続設定をローカルメモリにキャッシュ（`CACHE_CONFIG_TTL_SECONDS`、既定 60 秒）。Admin API 操作時に即時無効化される。
+3. **残枠（バランス）の読み取りキャッシュ**（**既定: オフ**）
+   - `CACHE_BALANCE_TTL_SECONDS` を指定することで、残枠確認の読み取りをキャッシュ可能。
+4. **加算のバッファリング / バッチ書き込み**（**既定: オフ**）
+   - `CACHE_BATCH_FLUSH_INTERVAL_SECONDS` を指定することで、コンテナ内で加算をまとめ、一定間隔でストアへ一括反映可能。
+   - **グレースフルシャットダウン**: SIGTERM 等の停止シグナル受信時に、バッファ内の未反映分を必ずストアへフラッシュする。
+
+### ソフトリミット超過幅の目安とリスク
+
+Kura は応答完了後に実測トークンからコストを加算する**ソフトリミット方式**を採用している。キャッシュ層を有効化した場合、超過幅の理論上の最大目安は以下の通りとなる：
+
+$$\text{最大超過幅} \approx \text{稼働コンテナ数} \times \text{設定TTL} \times \text{単位時間あたりの消費コスト}$$
+
+> [!WARNING]
+> - **バッチ書き込み時の過少集計リスク**: 加算バッチ書き込みを有効にしている状態でプロセスが `kill -9` やノード障害で異常終了した場合、バッファ内の未反映コストが失われて過少集計になりうる。厳密性を重視する場合はバッチ書き込みをオフ（既定値 `0`）のまま運用すること。
+
+---
+
+## 料金表 (Pricing Table)
+
+モデルごとの利用単価はデータベースではなく、外部 **JSON ファイル**（`pricing.json`）で定義・管理する。
+
+### 仕様
+- **設定ファイルパス**: 環境変数 `PRICING_FILE`（デフォルト: `pricing.json`）で指定。起動時にスキーマ検証が行われ、不正なファイルは起動を拒絶する。
+- **単価項目**: 入力（`input_cost`）、出力（`output_cost`）、キャッシュ入力（`cached_input_cost`）、推論トークン（`reasoning_cost`）を 100 万トークンあたりの USD 単価で定義。
+- **フォールバック規則**: キャッシュ単価や推論単価が未定義のモデルは、それぞれ通常の入力単価・出力単価へ自動フォールバックする。
+- **バージョン追跡**: 料金表ファイル自体に `version`（適用日等）を持たせ、利用実績の記録時にその時点のバージョンを一緒に永続化する（後日の単価改定後も過去実績を正確に再現可能）。
+- **未定義モデルポリシー**: 環境変数 `UNKNOWN_MODEL_POLICY` で未定義モデル呼び出し時の挙動を設定可能。
+  - `warn`（デフォルト）: 警告ログを出力し、フォールバック単価（Input: $1.00 / Output: $3.00 per 1M）を適用して集計を継続。
+  - `reject`: `400 Bad Request` で即座にリクエストを拒絶。
+- **運用方針**: 全コンテナが同一の単価表を参照するよう、コンテナイメージへの焼き込みまたは Kubernetes ConfigMap / 共通ボリュームによるマウントを推奨する。
+
+---
+
+## 仮想モデルエイリアス
+
+Kura ではリクエストモデル名に仮想エイリアスを指定することで、コードを変更することなく最適な物理モデルへルーティングできる。
+
+| エイリアス名 | 物理解決モデル | 経由プロバイダー | 主な用途・特徴 |
+| :--- | :--- | :--- | :--- |
+| `fast`, `default` | `gpt-5.4-mini` | Microsoft Foundry / Azure OpenAI | 高速応答、低コスト、一般的なチャット・分類 |
+| `smart`, `code` | `claude-3-5-sonnet` | Microsoft Foundry (Serverless API) | 高度な推論、コーディング、長文コンテキスト処理 |
+| `flash` | `gemini-1.5-flash` | Google Gemini | 超高速処理、マルチモーダル入力、軽量タスク |
+
+※ 物理モデル名（例: `gpt-4o`, `claude-3-5-sonnet`, `gemini-1.5-pro`, `anthropic.claude-3-5-sonnet-20240620-v1:0`）を直接指定した場合は、エイリアス変換を行わず指定モデルへ透過ルーティングされる。
 
 ---
 
@@ -44,8 +196,8 @@ Standard Go Project Layout（クリーンアーキテクチャ）を採用し、
 flowchart TD
     Client["クライアント アプリケーション<br/>(SDK / Curl / WebApp)"]
     
-    subgraph Tollgate ["前段 ゲートウェイ (Tollgate / ALB)"]
-        AUTH["API キー認証 / テナント解決"]
+    subgraph AuthLayer ["認証ゲートウェイ（任意。例: Tollgate / ALB / 自前プロキシ）"]
+        AUTH["API キー / JWT 認証<br/>テナント・サービス識別ヘッダー付与<br/>RPM レートリミット"]
     end
 
     subgraph Kura ["Kura — LLM Gateway (:8080)"]
@@ -64,102 +216,261 @@ flowchart TD
         subgraph CoreLogic ["コア制御 (UseCase)"]
             ALIAS["仮想モデル・ルーティング"]
             QUOTA["クォータ & 予算ガード (429)"]
-            RATELIMIT["RPM レートリミッター"]
+            PRICING["JSON 単価表エンジン"]
             STREAM["SSE Usage インターセプター"]
         end
 
-        subgraph Storage ["ストレージ & オブザーバビリティ"]
-            DYNAMO["Amazon DynamoDB<br/>(アトミック集計 / 月次クォータ)"]
-            ASYNC_LOG["非同期構造化ログ (JSON)"]
-            CRON["自律スケジューラー (月次締め)"]
+        subgraph CacheLayer ["キャッシュ層 (デコレーター)"]
+            NEG_CACHE["ネガティブキャッシュ (遮断済み)"]
+            CFG_CACHE["設定キャッシュ (TTL 60s)"]
+            BATCH_BUF["加算バッチバッファ (Optional)"]
+        end
+
+        subgraph StorageLayer ["ストレージ層 (役割分離)"]
+            COST_STORE["コスト管理ストア (ホットパス)<br/>SQLite / DynamoDB / Valkey"]
+            USAGE_STORE["集計結果ストア (永続)<br/>SQLite / DynamoDB / PostgreSQL"]
+            CRON["自律スケジューラー (月次締め・補正)"]
         end
     end
 
     subgraph Providers ["外部 LLM プロバイダー"]
         AZURE["Microsoft Foundry / Azure OpenAI"]
         GEMINI["Google Gemini (AI Studio)"]
+        BEDROCK["Amazon Bedrock (bedrock-mantle)"]
         MOCK["統合モックサーバー (:8090)"]
     end
 
-    Client -->|"Authorization: Bearer <key>"| Tollgate
-    Tollgate -->|"X-Service-ID / X-Tenant-ID 付与"| ROUTER
+    Client -.->|"前段なし直接接続 (プライベート環境)"| ROUTER
+    Client -->|"Authorization: Bearer <key>"| AUTH
+    AUTH -->|"X-Service-ID / X-Tenant-ID 付与"| ROUTER
     ROUTER --> Endpoints
-    CHAT --> ALIAS --> RATELIMIT --> QUOTA --> STREAM
-    QUOTA <-->|"アトミック加算 / 残枠照会"| DYNAMO
+    CHAT --> ALIAS --> QUOTA --> STREAM
+    QUOTA <-->|"ネガティブ判定 / キャッシュ"| CacheLayer
+    CacheLayer <-->|"残枠確認 / アトミック加算"| COST_STORE
+    STREAM -->|"利用実績記録"| USAGE_STORE
     STREAM -->|"リバースプロキシ"| Providers
+    CRON <-->|"実績から残高補正"| COST_STORE
+    CRON <-->|"集計・分散ロック"| USAGE_STORE
 ```
+
+---
+
+## ディレクトリ構成
+
+```
+kura/
+├── cmd/
+│   ├── server/                     # Gateway 本体エントリーポイント (main.go)
+│   └── mock_server/                # ローカル検証用モック LLM サーバー
+├── internal/
+│   ├── delivery/
+│   │   └── http/                   # HTTP ハンドラ、Huma v2 定義、ミドルウェア
+│   ├── domain/
+│   │   ├── entity/                 # ドメインエンティティ、価格エンジン (pricing.go)
+│   │   ├── repository/             # CostStore / UsageStore インターフェース
+│   │   └── service/                # プロバイダーアダプターインターフェース
+│   ├── infrastructure/
+│   │   ├── adapter/                # プロバイダーアダプター (OpenAI / Azure / Bedrock)
+│   │   ├── cache/                  # キャッシュ層デコレーター (CachedCostStore)
+│   │   ├── config/                 # 環境変数設定ローダー (config.go)
+│   │   ├── dynamodb/               # DynamoDB ストア実装
+│   │   ├── logger/                 # 非同期バッファリング構造化ロガー
+│   │   ├── metrics/                # Prometheus メトリクスコレクター
+│   │   ├── notifier/               # アプリ内通知・ログ出力アダプター
+│   │   ├── postgres/               # PostgreSQL ストア実装
+│   │   ├── proxy/                  # LLM リバースプロキシ & ストリーミング処理
+│   │   ├── scheduler/              # 自律 Cron & 補正スケジューラー
+│   │   ├── sqlite/                 # SQLite ストア実装 (純 Go / CGO 不要)
+│   │   ├── store/                  # ストアファクトリ & 組み合わせ検証
+│   │   ├── valkey/                 # Valkey / Redis コストストア実装
+│   │   └── websocket/              # Realtime WebSocket プロキシ
+│   └── usecase/                    # ビジネスロジック (Auth, Chat, Admin, Batch)
+├── docs/                           # 詳細仕様ドキュメント群
+├── pricing.json                    # モデル別単価定義ファイル
+├── Dockerfile                      # Gateway マルチステージビルド定義
+├── Dockerfile.mock                 # モックサーバービルド定義
+├── compose.yaml                    # ローカル開発・検証用 Compose 定義 (既定: SQLite)
+├── CONTRIBUTING.md                 # コントリビューション & CI/CD ガイド
+├── CHANGELOG.md                    # 変更履歴
+└── SECURITY.md                     # セキュリティポリシー
+```
+
+---
+
+## API エンドポイント一覧
+
+### 公開 API (サービス向け)
+
+| パス | メソッド | 認証 | 概要 |
+| :--- | :---: | :---: | :--- |
+| `/v1/chat/completions` | `POST` | ヘッダー信頼 (`X-Service-ID`, `X-Tenant-ID`) | OpenAI 互換チャット補完 (同期 / SSE ストリーミング) |
+| `/v1/realtime` | `GET` | ヘッダー信頼 (`X-Service-ID`, `X-Tenant-ID`) | OpenAI Realtime API (WebSocket 双方向パススルー) |
+| `/v1/usage` | `GET` | ヘッダー信頼 (`X-Service-ID`, `X-Tenant-ID`) | テナント月次利用量・残予算枠の照会 |
+
+### 管理 API (Admin)
+
+| パス | メソッド | 認証 | 概要 |
+| :--- | :---: | :---: | :--- |
+| `/v1/admin/usage` | `GET` | Bearer キー (`ADMIN_API_KEY`) | サービス別月次利用実績およびモデル別内訳の照会 |
+| `/v1/admin/limits` | `POST` | Bearer キー (`ADMIN_API_KEY`) | テナントクォータ・月次予算上限・課金プランの設定 |
+| `/v1/admin/jobs/run` | `POST` | Bearer キー (`ADMIN_API_KEY`) | 定期バッチジョブ（月次締め・アラート）の手動即時実行 |
+| `/v1/admin/jobs/reconcile` | `POST` | Bearer キー (`ADMIN_API_KEY`) | Valkey/Redis コストストア残高の集計結果ストアからの手動補正実行 |
+| `/v1/admin/notifications` | `GET` | Bearer キー (`ADMIN_API_KEY`) | アプリ内通知一覧（月次レポート・予算警告）の取得 |
+
+### 運用・システム API
+
+| パス | メソッド | 認証 | 概要 |
+| :--- | :---: | :---: | :--- |
+| `/healthz` | `GET` | 不要 | 総合ヘルスチェック |
+| `/livez` | `GET` | 不要 | **Liveness プローブ**: プロセス生存監視 (外部依存なし) |
+| `/readyz` | `GET` | 不要 | **Readiness プローブ**: ストレージ疎通・トラフィック受入監視 |
+| `/metrics` | `GET` | 不要 | **Prometheus メトリクス**: レイテンシー・トークン数・コスト・キャッシュ照会 |
+| `/docs` | `GET` | 不要 | **Scalar UI API ドキュメント** |
+| `/openapi` | `GET` | 不要 | **OpenAPI 3.1 JSON スキーマ** |
+
+---
+
+## 環境変数設定
+
+Kura は起動時に以下の環境変数を読み込んで動作する。
+
+| 変数名 | デフォルト値 | 必須 | 説明 |
+| :--- | :--- | :---: | :--- |
+| `PORT` | `8080` | 任意 | HTTP サーバー待受ポート番号 |
+| `AWS_REGION` | `ap-northeast-1` | 任意 | AWS リージョン |
+| `COST_STORE` | `sqlite` | 任意 | コスト管理ストア種別 (`sqlite` / `dynamodb` / `valkey` / `redis` / `postgres`) |
+| `USAGE_STORE` | `sqlite` | 任意 | 集計結果ストア種別 (`sqlite` / `dynamodb` / `postgres`) |
+| `SQLITE_PATH` | `./data/kura.db` | 任意 | SQLite データベースファイルパス |
+| `CACHE_ENABLED` | `true` | 任意 | キャッシュ層の有効化フラグ (SQLite では自動バイパス) |
+| `CACHE_NEGATIVE_TTL_SECONDS` | `300` | 任意 | 遮断済みテナントのネガティブキャッシュ最大 TTL (秒) |
+| `CACHE_CONFIG_TTL_SECONDS` | `60` | 任意 | テナント/サービス永続設定の読み取りキャッシュ TTL (秒) |
+| `CACHE_BALANCE_TTL_SECONDS` | `0` | 任意 | 残枠（バランス）読み取りキャッシュ TTL (秒、`0` で無効) |
+| `CACHE_BATCH_FLUSH_INTERVAL_SECONDS` | `0` | 任意 | 加算バッチ書き込みフラッシュ間隔 (秒、`0` で即時反映) |
+| `DYNAMODB_ENDPOINT` | 空文字 | 任意 | DynamoDB エンドポイント URL (ローカル開発時: `http://dynamodb:8000`) |
+| `DYNAMODB_TABLE_NAME` | `KuraUsage` | 任意 | 利用実績・クォータ管理用 DynamoDB テーブル名 |
+| `VALKEY_URL` | 空文字 | 任意 | Valkey / Redis 接続 URL (`redis://localhost:6379/0`) |
+| `POSTGRES_DSN` | 空文字 | 任意 | PostgreSQL 接続文字列 (`postgres://user:pass@host:5432/db`) |
+| `PRICING_FILE` | `pricing.json` | 任意 | モデル別単価表 JSON ファイルパス |
+| `UNKNOWN_MODEL_POLICY` | `warn` | 任意 | 単価表未定義モデルの扱い (`warn`: デフォルト単価でフォールバック / `reject`: 400 で遮断) |
+| `RECONCILE_INTERVAL_SECONDS` | `300` | 任意 | Valkey/Redis 利用時の残高補正ジョブ実行間隔 (秒) |
+| `MICROSOFT_FOUNDRY_ENDPOINT` | 空文字 | 任意 | Microsoft Foundry / Azure OpenAI ベース URL (`AZURE_OPENAI_ENDPOINT` でも指定可) |
+| `MICROSOFT_FOUNDRY_API_KEY` | 空文字 | 任意 | Microsoft Foundry / Azure OpenAI API キー (`AZURE_OPENAI_API_KEY` でも指定可) |
+| `MICROSOFT_FOUNDRY_API_VERSION` | `2024-02-15-preview` | 任意 | Microsoft Foundry / Azure OpenAI API バージョン |
+| `MICROSOFT_FOUNDRY_DEFAULT_DEPLOYMENT` | 空文字 | 任意 | デフォルトデプロイメントモデル名 |
+| `MICROSOFT_FOUNDRY_ENDPOINT_JAPAN` | 空文字 | 任意 | 日本国内限定ルーティング用エンドポイント (`X-Data-Residency: japan` 指定時に使用) |
+| `BEDROCK_API_KEY` | 空文字 | 任意 | Amazon Bedrock API キー |
+| `BEDROCK_REGION` | `us-east-1` | 任意 | Amazon Bedrock リージョン |
+| `BEDROCK_ENDPOINT` | 空文字 | 任意 | Amazon Bedrock Mantle エンドポイント (未指定時は `https://bedrock-mantle.{region}.api.aws/v1`) |
+| `GEMINI_API_KEY` | 空文字 | 任意 | Google Gemini API キー |
+| `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com` | 任意 | Google Gemini API ベース URL |
+| `DEFAULT_TOKEN_QUOTA` | `1000000` | 任意 | 新規テナント初期月間トークン上限 (デフォルト100万トークン) |
+| `DEFAULT_BILLING_TYPE` | `payg` | 任意 | デフォルト課金タイプ (`payg`: 従量課金 / `capped`: 上限到達時遮断) |
+| `LOG_CHANNEL_BUFFER_SIZE` | `10000` | 任意 | 非同期ロガーのメモリバッファキューサイズ |
+| `ADMIN_API_KEY` | 空文字 | 任意 | 管理者マスター API キー (未設定時は管理 API を 401 で遮断) |
+| `ENABLE_INTERNAL_CRON` | `true` | 任意 | 内蔵スケジューラー (月次締め・毎時アラート・定期補正) の有効化フラグ |
+| `ENFORCE_TOLLGATE_AUTH` | `false` | 任意 | `true` の場合、API キー識別ヘッダー (`X-Key-ID`) 欠落リクエストを 401 で拒絶 |
+| `DOCS_PATH` | `/docs` | 任意 | Scalar UI ドキュメントの公開パス (空文字 / `none` / `off` で無効化) |
+| `OPENAPI_PATH` | `/openapi` | 任意 | OpenAPI 3.1 スキーマの公開パス (空文字 / `none` / `off` で無効化) |
 
 ---
 
 ## クイックスタート
 
 ### 前提条件
-- [Go](https://go.dev/) 1.25 以上
+- [Go](https://go.dev/) 1.24 以上
 - [Docker](https://www.docker.com/) または [nerdctl](https://github.com/containerd/nerdctl) / Docker Compose
 
-### 1. リポジトリのクローン & セットアップ
+### 1. リポジトリのクローン & 設定準備
 ```bash
 git clone https://github.com/northfieldzz/kura.git
 cd kura
 cp .env.example .env  # 必要に応じて環境変数を編集
 ```
 
-### 2. コンテナでの起動 (推奨)
+### 2. Docker Compose での最短起動 (SQLite 既定)
+外部 DB の立ち上げ不要で、データ用ボリュームをマウントした SQLite 構成で即座に起動する。
+
 ```bash
-# 全体スタック (Gateway + DynamoDB Local + Mock LLM Server) を起動
-docker compose --profile database up -d --build
-# または nerdctl
-nerdctl compose --profile database up -d --build
+docker compose up -d --build
 ```
 
-起動後、各サービスへアクセス可能です：
+マルチコンテナ構成（DynamoDB や PostgreSQL、Valkey）で起動する場合はプロファイルを指定する：
+```bash
+# DynamoDB Local 構成で起動
+docker compose --profile dynamodb up -d --build
+
+# Valkey + PostgreSQL 構成で起動
+docker compose --profile valkey --profile postgres up -d --build
+```
+
+### 3. Docker 単体での最短起動
+```bash
+docker run -d -p 8080:8080 -v kura-data:/data ghcr.io/northfieldzz/kura:latest
+```
+
+### 4. Go 単体での起動
+```bash
+go run ./cmd/server
+```
+※ 既定で `./data/kura.db` に SQLite データベースが自動生成され、再起動後もデータが保持される。
+
+起動後、以下のエンドポイントへアクセス可能である：
 - **Kura Gateway**: `http://localhost:8080`
 - **Scalar API ドキュメント**: `http://localhost:8080/docs`
 - **OpenAPI 3.1 仕様書**: `http://localhost:8080/openapi`
 - **統合 LLM モックサーバー**: `http://localhost:8090`
-- **DynamoDB Admin UI**: `http://localhost:8001`
-
-### 3. Go 単体での起動
-```bash
-go run ./cmd/server
-```
-※ DynamoDB が未起動の場合は、自動的にインメモリストアへフォールバックして即座に起動します。
 
 ---
 
-## API リクエスト例
+## API 利用例
 
-### 1. ヘルスチェック
-```bash
-curl -i http://localhost:8080/healthz
-```
+### 1. 単体呼び出し例 (プライベートネットワーク・開発環境)
 
-### 2. チャット補完 (OpenAI 互換・メタデータ付与)
+ヘッダーに `X-Service-ID` と `X-Tenant-ID` を直接付与してリクエストを送信する。
+
 ```bash
+# チャット補完 (OpenAI 互換・仮想モデル fast 指定・SSE ストリーミング)
 curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "X-Service-ID: service-core" \
-  -H "X-Tenant-ID: tenant-alpha" \
+  -H "X-Service-ID: payment-service" \
+  -H "X-Tenant-ID: tenant-corp-a" \
   -H "X-Environment: staging" \
-  -H "X-Feature: rag-search" \
+  -H "X-Feature: summarize" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "fast",
     "messages": [
       {"role": "system", "content": "You are a helpful assistant."},
-      {"role": "user", "content": "Hello!"}
+      {"role": "user", "content": "こんにちは！"}
     ],
     "stream": true
   }'
 ```
 
+### 2. 前段ゲートウェイ併用例 (Tollgate による構成例)
+
+RPM 制限やクライアント API キー検証は前段ゲートウェイ側で実施する。以下は姉妹プロジェクト [Tollgate](https://github.com/northfieldzz/tollgate) を組み合わせた場合の構成例である。
+
+```bash
+curl -X POST http://localhost:8000/llm/v1/chat/completions \
+  -H "Authorization: Bearer tlge_live_9a8b7c6d..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "smart",
+    "messages": [
+      {"role": "user", "content": "Hello via API Gateway and Kura!"}
+    ]
+  }'
+```
+
 ### 3. テナント別クォータ・課金プラン設定 (Admin API)
+
 ```bash
 curl -X POST http://localhost:8080/v1/admin/limits \
   -H "Authorization: Bearer ${ADMIN_API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{
-    "service_id": "service-core",
-    "tenant_id": "tenant-alpha",
+    "service_id": "payment-service",
+    "tenant_id": "tenant-corp-a",
     "cost_limit": 100.0,
     "billing_type": "capped"
   }'
@@ -167,83 +478,64 @@ curl -X POST http://localhost:8080/v1/admin/limits \
 
 ---
 
-## 主なエンドポイント
+## 制限事項
 
-| パス | メソッド | 認証 | 概要 |
-| :--- | :---: | :---: | :--- |
-| `/healthz` | `GET` | 不要 | 総合ヘルスチェック |
-| `/livez` | `GET` | 不要 | **Liveness プローブ**: プロセス生存監視 (外部依存なし) |
-| `/readyz` | `GET` | 不要 | **Readiness プローブ**: トラフィック受入監視 (DynamoDB 疎通・Shutdown 検知) |
-| `/metrics` | `GET` | 不要 | **Prometheus メトリクス**: TTFT・レイテンシー・コスト・429拒絶数 |
-| `/v1/chat/completions` | `POST` | Bearer キー | OpenAI 互換チャット補完 (同期 / SSE ストリーミング) |
-| `/v1/realtime` | `GET` | Bearer キー | OpenAI Realtime API (WebSocket 双方向パススルー) |
-| `/v1/usage` | `GET` | Bearer キー | テナント月次利用量・残予算枠の自己照会 |
-| `/v1/admin/limits` | `POST` | Bearer キー (Admin) | 予算上限・課金タイプ設定 |
-| `/v1/admin/usage` | `GET` | Bearer キー (Admin) | 全サービス・テナント利用量レポート照会 |
-| `/v1/admin/jobs/run` | `POST` | Bearer キー (Admin) | 月次締めレポート手動実行ジョブ |
+- **SQLite は単一インスタンス専用である**: SQLite はファイルベースのデータベースであるため、複数コンテナからの同時書き込み・水平スケールには対応していない。マルチコンテナでスケールさせる場合は DynamoDB または Valkey + PostgreSQL / DynamoDB を使用すること。
+- **コスト上限はソフトリミット方式である**: Kura ではストリーミング応答を含め、応答完了時に実測されたトークン数からコストを加算する。そのため、上限到達間際の同時並行リクエストでは上限をわずかに超過して処理される場合がある。厳密な事前引き当て（Hard Limit）は未実装である。
+- **キャッシュ有効時の超過幅**: キャッシュ層（特に残枠キャッシュ）を有効化した場合、各コンテナがローカルキャッシュを参照するため、ソフトリミットの超過幅が「コンテナ数 × TTL × 単位時間あたりコスト」の範囲で広がる可能性がある。
+- **RPM（分間リクエスト制限）の非内包**: プロセス内メモリ依存を排除してマルチコンテナでの水平スケールを担保するため、RPM 制限は Kura から排除されている。レートリミットが必要な場合は前段の認証ゲートウェイ（Tollgate 等）で実施すること。
+- **Valkey / Redis 利用時のカウンタ消失リスク**: コスト管理ストアに Valkey / Redis を使用する場合、インスタンス障害等でメモリ上の累計値が消失するリスクがある。AOF 等の永続化設定を行うとともに、定期的な補正（Reconciliation）機能を併用すること。
+- **Amazon Bedrock の対応モデル**: Amazon Bedrock は `bedrock-mantle` の OpenAI 互換エンドポイントで中継される。Mantle で提供されていないモデル（Converse API / InvokeModel のみで提供されるモデル）は対象外となる。また Claude などのモデルも Mantle の Chat Completions 互換形式で呼び出す。
+- **一般 API の認証機構**: 一般 API では Bearer キーや JWT などの署名検証を行わず、HTTP ヘッダー（`X-Service-ID`, `X-Tenant-ID`）を信頼する。パブリック公開時は前段での認証・ヘッダー付与が必須となる。
 
 ---
 
-## 環境変数
+## ロードマップ (今後の検討事項)
 
-| 変数名 | 説明 | デフォルト値 |
-| :--- | :--- | :--- |
-| `PORT` | サーバーポート | `8080` |
-| `ADMIN_API_KEY` | 管理者マスターキー (未設定時は管理API無効) | 空 |
-| `AWS_REGION` | AWS リージョン | `ap-northeast-1` |
-| `DYNAMODB_ENDPOINT` | DynamoDB エンドポイント (ローカル: `http://dynamodb:8000`) | 空 (AWS デフォルト) |
-| `DYNAMODB_TABLE_NAME` | DynamoDB テーブル名 | `KuraUsage` |
-| `DEFAULT_TOKEN_QUOTA` | 初期テナント月間トークン上限 | `1000000` |
-| `RATE_LIMIT_RPM` | デフォルト分間最大リクエスト数 (0で無制限) | `600` |
-| `MICROSOFT_FOUNDRY_ENDPOINT` | Microsoft Foundry ベース URL | 空 |
-| `MICROSOFT_FOUNDRY_API_KEY` | Microsoft Foundry API キー | 空 |
-| `MICROSOFT_FOUNDRY_API_VERSION` | API バージョン | `2024-02-15-preview` |
-| `MICROSOFT_FOUNDRY_DEFAULT_DEPLOYMENT`| デフォルトデプロイモデル | `gpt-5.4-mini` |
-| `GEMINI_API_KEY` | Google Gemini API キー | 空 |
-| `DOCS_PATH` | Scalar UI ドキュメントパス | `/docs` |
-| `OPENAPI_PATH` | OpenAPI 3.1 スキーマパス | `/openapi` |
+以下の機能は現行バージョンでは未実装であり、将来的な拡張候補として検討されている。
+
+- **事前コスト予約 (Pre-allocation)**: リクエスト開始時に最大想定コストを事前予約し、完了時に確定差分を精算することで同時並行リクエストによる上限超過を抑制する機能。
+- **fail-closed モード**: リクエストごとに集計結果ストア（正のデータ）に対して残額の完全同期検証を行い、超過時の通過を完全に防ぐ高厳密性モード。
+- **Bedrock の Claude 系ネイティブ（Anthropic Messages API）対応**: Mantle の OpenAI 互換形式を介さず、Anthropic Messages API 形式への直接相互変換レイヤーの提供。
 
 ---
 
-## ディレクトリ構造
+## テスト実行
 
-```
-kura/
-├── cmd/
-│   ├── server/                     # Gateway 本体エントリーポイント
-│   └── mock_server/                # ローカル検証用モック LLM サーバー
-├── internal/
-│   ├── domain/                     # ドメイン層 (Entities, Interfaces)
-│   ├── usecase/                    # ユースケース層 (Routing, Quota, Auth, Admin)
-│   ├── infrastructure/             # インフラ層 (Adapter, DynamoDB, Proxy, RateLimit)
-│   └── delivery/http/              # プレゼンテーション層 (Huma v2, Handlers, Middlewares)
-├── docs/                           # 詳細仕様ドキュメント群
-├── Dockerfile                      # Gateway マルチステージビルド (Alpine)
-├── compose.yaml                    # ローカル開発・検証用スタック
-└── CONTRIBUTING.md                 # コントリビューションガイドライン
+```bash
+# 全ユニットテストの実行 (キャッシュ無効・外部依存なし)
+go test -v -count=1 ./...
+
+# CGO_ENABLED=0 でのビルド検証 (静的バイナリ / distroless 対応)
+CGO_ENABLED=0 go build -o ./bin/server ./cmd/server
 ```
 
 ---
 
-## CI / CD (GitHub Actions)
+## 詳細仕様書 & ガイド
 
-`.github/workflows/docker-publish.yml` により、以下のトリガーで **GitHub Container Registry (`ghcr.io`)** への自動ビルド・Push が行われます。
+詳細なアーキテクチャ設計、仕様書、運用ガイドは `docs/` 配下の各ドキュメントを参照のこと。
 
-- **トリガー**:
-  - セマンティックバージョニングタグ（例: `v1.0.0`）の Push、または手動実行 (`workflow_dispatch`)
-- **パブリッシュ先**: `ghcr.io/<owner>/kura:<tag>`
-- **マルチアーキテクチャ対応**: `linux/amd64`, `linux/arm64`
-- **認証**: リポジトリ標準の `GITHUB_TOKEN`（`packages: write` 権限）を使用するため、個別の外部 Secret 登録は不要。
+- [システムアーキテクチャ詳細](docs/architecture.md) — 全体構造、データフロー、コンポーネント設計
+- [API リファレンス](docs/api-reference.md) — 全エンドポイントの詳細仕様とスキーマ
+- [認証 & テナント解決仕様](docs/auth-and-virtual-keys.md) — ヘッダー解決、管理者認証、透過タグ
+- [課金プラン & クォータ制御仕様](docs/billing-and-quota.md) — トークンメータリング、コスト算出、上限遮断ルール
+- [DynamoDB スキーマ設計](docs/dynamodb-schema.md) — Single Table Design、PK/SK 構造、GSI 設計
+- [スケジューラー & オブザーバビリティ](docs/scheduler-and-observability.md) — Cron 定期バッチ、Prometheus メトリクス、構造化ログ
+- [基本要件定義書](docs/SPECIFICATION.md) — プロジェクト要件および機能一覧
+- [コントリビューションガイド](CONTRIBUTING.md) — 開発フロー、コーディング規約、CI/CD 構成
+- [変更履歴](CHANGELOG.md) — バージョン別変更履歴
+- [セキュリティポリシー](SECURITY.md) — 脆弱性報告手順およびセキュリティ設計原則
 
 ---
 
-## コントリビューション
+## 関連プロジェクト
 
-Kura への貢献を歓迎します！  
-バグ報告、機能提案、プルリクエストの作成手順については [CONTRIBUTING.md](CONTRIBUTING.md) をご覧ください。
+- [**Tollgate**](https://github.com/northfieldzz/tollgate) — マルチテナント向け高パフォーマンス API キー管理・レート制限プロキシゲートウェイ（Kura の前段に配置して併用可能。併用は任意）。
+- [**Portico**](https://github.com/northfieldzz/portico) — エンタープライズ向け MCP (Model Context Protocol) ゲートウェイ・オーケストレーター（併用は任意）。
 
 ---
 
 ## ライセンス
 
-本プロジェクトは [MIT License](LICENSE) のもとで公開されています。
+本プロジェクトは [Mozilla Public License 2.0 (MPL-2.0)](LICENSE) のもとで公開されている。

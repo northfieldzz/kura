@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/northfieldzz/kura/internal/domain/entity"
 	"github.com/northfieldzz/kura/internal/domain/repository"
@@ -25,7 +26,7 @@ type AuthUseCase interface {
 	// AuthenticateRequest は HTTP リクエストヘッダーからサービス・テナント情報を解決し、クォータ判定を行う
 	AuthenticateRequest(ctx context.Context, r *http.Request) (*AuthResult, *entity.StandardErrorResponse)
 
-	// GetKeyUsageSummary は指定された TenantContext (APIキー / 3階層) の当月消費量とリアルタイム残枠サマリを取得する
+	// GetKeyUsageSummary は指定された TenantContext の当月消費量とリアルタイム残枠サマリを取得する
 	GetKeyUsageSummary(ctx context.Context, tenantCtx *entity.TenantContext) (*entity.KeyUsageSummary, error)
 }
 
@@ -35,20 +36,30 @@ type AuthUseCaseConfig struct {
 }
 
 type authUseCase struct {
-	repo repository.QuotaRepository
-	cfg  AuthUseCaseConfig
+	costStore  repository.CostStore
+	usageStore repository.UsageStore
+	cfg        AuthUseCaseConfig
+}
+
+type negativeCacher interface {
+	IsNegativeCached(serviceID, tenantID string) bool
+	MarkNegativeCached(serviceID, tenantID string, now time.Time)
 }
 
 // NewAuthUseCase はデフォルト設定で AuthUseCase を生成する
-func NewAuthUseCase(repo repository.QuotaRepository) AuthUseCase {
-	return NewAuthUseCaseWithConfig(repo, AuthUseCaseConfig{
+func NewAuthUseCase(costStore repository.CostStore, usageStore repository.UsageStore) AuthUseCase {
+	return NewAuthUseCaseWithConfig(costStore, usageStore, AuthUseCaseConfig{
 		EnforceTollgateAuth: false,
 	})
 }
 
 // NewAuthUseCaseWithConfig は指定された設定で AuthUseCase を生成する
-func NewAuthUseCaseWithConfig(repo repository.QuotaRepository, cfg AuthUseCaseConfig) AuthUseCase {
-	return &authUseCase{repo: repo, cfg: cfg}
+func NewAuthUseCaseWithConfig(costStore repository.CostStore, usageStore repository.UsageStore, cfg AuthUseCaseConfig) AuthUseCase {
+	return &authUseCase{
+		costStore:  costStore,
+		usageStore: usageStore,
+		cfg:        cfg,
+	}
 }
 
 func (u *authUseCase) AuthenticateRequest(
@@ -89,16 +100,16 @@ func (u *authUseCase) AuthenticateRequest(
 		)
 	}
 
-	// Tollgate プロキシ経由フラグの判定 (APIキーID X-Key-ID が存在すること)
+	// Tollgate 等のプロキシ経由フラグの判定
 	isProxied := keyID != ""
 
-	// Tollgate 認証強制モード時のバリデーション
+	// 認証強制モード時のバリデーション
 	if u.cfg.EnforceTollgateAuth && !isProxied {
 		return nil, entity.NewStandardError(
 			http.StatusUnauthorized,
 			entity.ErrorTypeUnauthorized,
-			"Tollgate proxy authentication is enforced but required header (X-Key-ID) is missing or empty",
-			"missing_tollgate_headers",
+			"Gateway proxy authentication is enforced but required header (X-Key-ID) is missing or empty",
+			"missing_gateway_headers",
 		)
 	}
 
@@ -121,33 +132,35 @@ func (u *authUseCase) AuthenticateRequest(
 		tenantCtx.Tags = parseTagsHeader(tagsHeader)
 	}
 
-	// 2. サービス全体の当月累計利用量およびリミットを取得 (日本時間基準)
+	// 2. ネガティブキャッシュ（遮断済みテナント）の高速判定 (ホットパス最適化)
+	var negCacher negativeCacher
+	if nc, ok := u.costStore.(negativeCacher); ok {
+		negCacher = nc
+		if negCacher.IsNegativeCached(tenantCtx.ServiceID, tenantCtx.TenantID) {
+			return nil, entity.NewStandardError(
+				http.StatusTooManyRequests,
+				entity.ErrorTypeQuotaExceeded,
+				fmt.Sprintf("Monthly cost quota exceeded for tenant %s (service %s) [cached negative]",
+					tenantCtx.TenantID, tenantCtx.ServiceID),
+				"quota_exceeded",
+			)
+		}
+	}
+
+	// 3. サービス全体の当月累計利用量およびリミットを取得 (日本時間基準)
 	currentMonth := entity.CurrentMonthJST()
 
-	// サービス全体の月次利用実績 & 予算上限を最優先で取得・検証
-
-	serviceReport, _ := u.repo.GetServiceMonthlyUsage(ctx, tenantCtx.ServiceID, currentMonth)
+	totalCost, totalTokens, _ := u.costStore.GetServiceCost(ctx, tenantCtx.ServiceID, currentMonth)
 
 	billingType := string(entity.BillingTypePAYG)
 	costLimit := float64(0)
-	totalTokens := int64(0)
-	totalCost := float64(0)
 
-	if serviceReport != nil {
-		costLimit = serviceReport.CostLimit
-		totalCost = serviceReport.TotalCostUSD
-		totalTokens = serviceReport.TotalTokens
-		if serviceReport.BillingType != "" {
-			billingType = serviceReport.BillingType
-		} else if costLimit > 0 {
-			billingType = string(entity.BillingTypeCapped)
-		}
-	} else if svcConfig, _ := u.repo.GetServiceConfig(ctx, tenantCtx.ServiceID); svcConfig != nil {
+	if svcConfig, _ := u.costStore.GetServiceConfig(ctx, tenantCtx.ServiceID); svcConfig != nil {
 		costLimit = svcConfig.CostLimit
 		billingType = string(svcConfig.EffectiveBillingType())
 	}
 
-	// 3. サービス全体の月次コスト上限超過判定 (金額ベースのブレーキ)
+	// 4. サービス全体の月次コスト上限超過判定 (ソフトリミット)
 	if costLimit > 0 && totalCost >= costLimit {
 		return nil, entity.NewStandardError(
 			http.StatusTooManyRequests,
@@ -158,15 +171,14 @@ func (u *authUseCase) AuthenticateRequest(
 		)
 	}
 
-	// 4. テナント個別の月次コスト上限超過判定 (設定されている場合)
+	// 5. テナント個別の月次コスト上限超過判定 (設定されている場合)
 	if tenantCtx.TenantID != "" {
-		if tenantCfg, _ := u.repo.GetTenantConfig(ctx, tenantCtx.ServiceID, tenantCtx.TenantID); tenantCfg != nil && tenantCfg.CostLimit > 0 {
-			tenantUsage, _ := u.repo.GetTenantUsage(ctx, tenantCtx.ServiceID, tenantCtx.TenantID, currentMonth)
-			tenantCost := float64(0)
-			if tenantUsage != nil {
-				tenantCost = tenantUsage.TotalCost
-			}
+		if tenantCfg, _ := u.costStore.GetTenantConfig(ctx, tenantCtx.ServiceID, tenantCtx.TenantID); tenantCfg != nil && tenantCfg.CostLimit > 0 {
+			tenantCost, _, _ := u.costStore.GetTenantCost(ctx, tenantCtx.ServiceID, tenantCtx.TenantID, currentMonth)
 			if tenantCost >= tenantCfg.CostLimit {
+				if negCacher != nil {
+					negCacher.MarkNegativeCached(tenantCtx.ServiceID, tenantCtx.TenantID, time.Now())
+				}
 				return nil, entity.NewStandardError(
 					http.StatusTooManyRequests,
 					entity.ErrorTypeQuotaExceeded,
@@ -195,8 +207,6 @@ func parseTagsHeader(header string) map[string]string {
 		return nil
 	}
 
-	// ⚡ Bolt Optimization: Use Count and manual IndexByte iteration instead of strings.Split
-	// to eliminate string slice allocations on the hot path.
 	count := strings.Count(header, ",") + 1
 	tags := make(map[string]string, count)
 
@@ -215,8 +225,6 @@ func parseTagsHeader(header string) map[string]string {
 			continue
 		}
 
-		// ⚡ Bolt Optimization: Use strings.Cut instead of strings.SplitN
-		// to avoid slice allocation for the key-value pair.
 		if key, val, found := strings.Cut(p, "="); found {
 			tags[strings.TrimSpace(key)] = strings.TrimSpace(val)
 		} else {
@@ -234,83 +242,67 @@ func (u *authUseCase) GetKeyUsageSummary(ctx context.Context, tenantCtx *entity.
 	currentMonth := entity.CurrentMonthJST()
 
 	// 1. サービス全体の当月利用実績・上限取得
-	serviceReport, _ := u.repo.GetServiceMonthlyUsage(ctx, tenantCtx.ServiceID, currentMonth)
+	serviceTotalCost, totalTokens, _ := u.costStore.GetServiceCost(ctx, tenantCtx.ServiceID, currentMonth)
 
 	billingType := string(entity.BillingTypePAYG)
 	serviceCostLimit := float64(0)
-	serviceTotalCost := float64(0)
-	totalTokens := int64(0)
 	promptTokens := int64(0)
 	completionTokens := int64(0)
 
-	if serviceReport != nil {
-		serviceCostLimit = serviceReport.CostLimit
-		serviceTotalCost = serviceReport.TotalCostUSD
-		totalTokens = serviceReport.TotalTokens
-		if serviceReport.BillingType != "" {
-			billingType = serviceReport.BillingType
-		} else if serviceCostLimit > 0 {
-			billingType = string(entity.BillingTypeCapped)
-		}
-	} else if svcConfig, _ := u.repo.GetServiceConfig(ctx, tenantCtx.ServiceID); svcConfig != nil {
+	if svcConfig, _ := u.costStore.GetServiceConfig(ctx, tenantCtx.ServiceID); svcConfig != nil {
 		serviceCostLimit = svcConfig.CostLimit
 		billingType = string(svcConfig.EffectiveBillingType())
 	}
 
-	// テナントが指定されている場合、テナント月次実績およびテナント設定を取得
-	tenantCostLimit := float64(0)
-	tenantRemainingUSD := float64(-1)
-	tenantCost := float64(0)
-	isExceeded := false
-
+	// 2. テナント個別の詳細内訳 (モデル別) を取得
+	var tenantCostLimit float64
+	var tenantRemaining float64 = -1
 	if tenantCtx.TenantID != "" {
-		if tenantUsage, _ := u.repo.GetTenantUsage(ctx, tenantCtx.ServiceID, tenantCtx.TenantID, currentMonth); tenantUsage != nil {
-			tenantCost = tenantUsage.TotalCost
-			for _, m := range tenantUsage.Models {
-				promptTokens += m.PromptTokens
-				completionTokens += m.CompletionTokens
-			}
-		}
-		if tenantCfg, _ := u.repo.GetTenantConfig(ctx, tenantCtx.ServiceID, tenantCtx.TenantID); tenantCfg != nil {
-			tenantCostLimit = tenantCfg.CostLimit
+		if tCfg, _ := u.costStore.GetTenantConfig(ctx, tenantCtx.ServiceID, tenantCtx.TenantID); tCfg != nil {
+			tenantCostLimit = tCfg.CostLimit
+			tCost, _, _ := u.costStore.GetTenantCost(ctx, tenantCtx.ServiceID, tenantCtx.TenantID, currentMonth)
 			if tenantCostLimit > 0 {
-				if tenantCost >= tenantCostLimit {
-					tenantRemainingUSD = 0
-					isExceeded = true
-				} else {
-					tenantRemainingUSD = tenantCostLimit - tenantCost
+				tenantRemaining = tenantCostLimit - tCost
+				if tenantRemaining < 0 {
+					tenantRemaining = 0
 				}
 			}
 		}
-	}
 
-	// 2. 残り予算枠の計算 (上限設定なし = -1)
-	remainingUSD := float64(-1)
-	if serviceCostLimit > 0 {
-		if serviceTotalCost >= serviceCostLimit {
-			remainingUSD = 0
-			isExceeded = true
-		} else {
-			remainingUSD = serviceCostLimit - serviceTotalCost
+		usage, err := u.usageStore.GetTenantUsage(ctx, tenantCtx.ServiceID, tenantCtx.TenantID, currentMonth)
+		if err == nil && usage != nil {
+			for _, mu := range usage.Models {
+				promptTokens += mu.PromptTokens
+				completionTokens += mu.CompletionTokens
+			}
 		}
 	}
 
-	summary := &entity.UsageSummary{
+	var serviceRemaining float64 = -1
+	if serviceCostLimit > 0 {
+		serviceRemaining = serviceCostLimit - serviceTotalCost
+		if serviceRemaining < 0 {
+			serviceRemaining = 0
+		}
+	}
+
+	isExceeded := (serviceCostLimit > 0 && serviceTotalCost >= serviceCostLimit) ||
+		(tenantCostLimit > 0 && (tenantCostLimit-tenantRemaining) >= tenantCostLimit)
+
+	return &entity.KeyUsageSummary{
 		ServiceID:           tenantCtx.ServiceID,
 		TenantID:            tenantCtx.TenantID,
 		Month:               currentMonth,
 		BillingType:         billingType,
 		ServiceCostLimitUSD: serviceCostLimit,
 		ServiceTotalCostUSD: serviceTotalCost,
-		ServiceRemainingUSD: remainingUSD,
+		ServiceRemainingUSD: serviceRemaining,
 		TenantCostLimitUSD:  tenantCostLimit,
-		TenantRemainingUSD:  tenantRemainingUSD,
+		TenantRemainingUSD:  tenantRemaining,
 		TotalTokens:         totalTokens,
 		PromptTokens:        promptTokens,
 		CompletionTokens:    completionTokens,
 		AllowedModels:       tenantCtx.AllowedModels,
 		IsQuotaExceeded:     isExceeded,
-	}
-
-	return summary, nil
+	}, nil
 }

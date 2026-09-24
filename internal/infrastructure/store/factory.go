@@ -1,0 +1,132 @@
+package store
+
+import (
+	"fmt"
+	"log"
+	"strings"
+
+	"github.com/northfieldzz/kura/internal/domain/repository"
+	"github.com/northfieldzz/kura/internal/infrastructure/config"
+	"github.com/northfieldzz/kura/internal/infrastructure/dynamodb"
+	"github.com/northfieldzz/kura/internal/infrastructure/postgres"
+	"github.com/northfieldzz/kura/internal/infrastructure/sqlite"
+	"github.com/northfieldzz/kura/internal/infrastructure/valkey"
+)
+
+// StoreBundle は初期化された CostStore と UsageStore のペア
+type StoreBundle struct {
+	CostStore  repository.CostStore
+	UsageStore repository.UsageStore
+}
+
+// InitializeStores は設定に基づいて CostStore と UsageStore を検証・初期化する
+func InitializeStores(cfg *config.Config) (*StoreBundle, error) {
+	costStoreType := strings.ToLower(strings.TrimSpace(cfg.CostStoreType))
+	if costStoreType == "" {
+		costStoreType = "sqlite"
+	}
+
+	usageStoreType := strings.ToLower(strings.TrimSpace(cfg.UsageStoreType))
+	if usageStoreType == "" {
+		usageStoreType = "sqlite"
+	}
+
+	// Phase B: memory の指定はエラーで拒絶し、sqlite を促す (Fail-Fast)
+	if costStoreType == "memory" || usageStoreType == "memory" {
+		return nil, fmt.Errorf("storage type 'memory' is no longer supported for production; use 'sqlite' (or DynamoDB / PostgreSQL / Valkey) instead")
+	}
+
+	// 組み合わせの検証
+	// 不正な組み合わせ: 集計結果ストア (UsageStore) に Valkey / Redis は不可 (永続集計データ・クエリ不能のため)
+	if usageStoreType == "valkey" || usageStoreType == "redis" {
+		return nil, fmt.Errorf("invalid storage combination: USAGE_STORE cannot be '%s' (Valkey/Redis does not support relational aggregation query)", usageStoreType)
+	}
+
+	// 警告ログ
+	if costStoreType == "sqlite" || usageStoreType == "sqlite" {
+		log.Printf("[WARN] [STORAGE] SQLite store is configured (%s). SQLite is strictly designed for single-instance deployments. Do NOT use SQLite across multiple containers.", cfg.SQLitePath)
+	}
+	if costStoreType == "postgres" || costStoreType == "postgresql" {
+		log.Printf("[WARN] [STORAGE] CostStore is configured as PostgreSQL. This is NOT recommended for high-throughput hot path due to row-level lock contention and latency.")
+	}
+
+	bundle := &StoreBundle{}
+
+	// 1. SQLite の共通インスタンス初期化
+	if usageStoreType == "sqlite" && costStoreType == "sqlite" {
+		sqliteStore, err := sqlite.NewSQLiteStore(cfg.SQLitePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize SQLite store: %w", err)
+		}
+		bundle.CostStore = sqliteStore
+		bundle.UsageStore = sqliteStore
+		log.Printf("[INFO] [STORAGE] Storage engine initialized: CostStore=sqlite, UsageStore=sqlite (path=%s)", cfg.SQLitePath)
+		return bundle, nil
+	}
+
+	// UsageStore の初期化
+	switch usageStoreType {
+	case "sqlite":
+		sqStore, err := sqlite.NewSQLiteStore(cfg.SQLitePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize SQLite UsageStore: %w", err)
+		}
+		bundle.UsageStore = sqStore
+	case "dynamodb":
+		dynamoRepo := dynamodb.NewQuotaRepository(cfg.DynamoDBEndpoint, cfg.AWSRegion, cfg.DynamoDBTableName, cfg.DefaultTokenQuota)
+		bundle.UsageStore = dynamoRepo
+		if costStoreType == "dynamodb" {
+			bundle.CostStore = dynamoRepo
+		}
+	case "postgres", "postgresql":
+		pgStore, err := postgres.NewPostgresStore(cfg.PostgresDSN)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize PostgreSQL UsageStore: %w", err)
+		}
+		bundle.UsageStore = pgStore
+		if costStoreType == "postgres" || costStoreType == "postgresql" {
+			bundle.CostStore = pgStore
+		}
+	default:
+		return nil, fmt.Errorf("unknown USAGE_STORE type '%s'. Supported: sqlite, dynamodb, postgres", usageStoreType)
+	}
+
+	// CostStore の初期化 (まだ未設定の場合)
+	if bundle.CostStore == nil {
+		switch costStoreType {
+		case "sqlite":
+			sqStore, err := sqlite.NewSQLiteStore(cfg.SQLitePath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize SQLite CostStore: %w", err)
+			}
+			bundle.CostStore = sqStore
+		case "dynamodb":
+			bundle.CostStore = dynamodb.NewQuotaRepository(cfg.DynamoDBEndpoint, cfg.AWSRegion, cfg.DynamoDBTableName, cfg.DefaultTokenQuota)
+		case "valkey", "redis":
+			redisURL := cfg.ValkeyURL
+			if redisURL == "" {
+				redisURL = cfg.RedisURL
+			}
+			if redisURL == "" {
+				redisURL = "redis://localhost:6379/0"
+			}
+			vkStore, err := valkey.NewValkeyCostStore(redisURL)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize Valkey/Redis CostStore: %w", err)
+			}
+			bundle.CostStore = vkStore
+			log.Printf("[INFO] [STORAGE] Initialized Valkey/Redis CostStore at %s", redisURL)
+		case "postgres", "postgresql":
+			pgStore, err := postgres.NewPostgresStore(cfg.PostgresDSN)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize PostgreSQL CostStore: %w", err)
+			}
+			bundle.CostStore = pgStore
+		default:
+			return nil, fmt.Errorf("unknown COST_STORE type '%s'. Supported: sqlite, dynamodb, valkey, redis, postgres", costStoreType)
+		}
+	}
+
+	log.Printf("[INFO] [STORAGE] Storage engine initialized: CostStore=%s, UsageStore=%s", costStoreType, usageStoreType)
+	return bundle, nil
+}

@@ -15,6 +15,7 @@ Kura への関心とコントリビューションを歓迎します！
 6. [セキュリティ & API 設計方針](#6-セキュリティ--api-設計方針)
 7. [テスト & 検証](#7-テスト--検証)
 8. [プルリクエストの提出チェックリスト](#8-プルリクエストの提出チェックリスト)
+9. [CI / CD (GitHub Actions)](#9-ci--cd-github-actions)
 
 ---
 
@@ -164,6 +165,21 @@ PR を作成する前に、以下を確認してください：
 
 ---
 
+## 9. CI / CD (GitHub Actions)
+
+Kura では GitHub Actions により自動テストおよびコンテナイメージの自動配信を行っています。
+
+- **自動テスト (`.github/workflows/test.yml`)**:
+  - トリガー: `main` ブランチへの Push および Pull Request 作成時。
+  - 内容: `go mod verify`, `go vet`, `go test -v -race` によるコード品質検証とテストカバレッジ計測。
+- **イメージ自動配信 (`.github/workflows/release.yml`)**:
+  - トリガー: セマンティックバージョニングタグ（例: `v1.0.0`）の Push、または手動実行 (`workflow_dispatch`)。
+  - パブリッシュ先: **GitHub Container Registry (`ghcr.io`)** (`ghcr.io/<owner>/kura:<tag>`)。
+  - マルチアーキテクチャ対応: `linux/amd64`, `linux/arm64`。
+  - 認証: リポジトリ標準の `GITHUB_TOKEN`（`packages: write` 権限）を使用。
+
+---
+
 ## ライセンス
 
-Kura へのすべてのコントリビューションは、リポジトリの [MIT License](LICENSE) のもとで提供されるものとします。
+Kura へのすべてのコントリビューションは、リポジトリの [Mozilla Public License 2.0 (MPL-2.0)](LICENSE) のもとで提供されるものとします。

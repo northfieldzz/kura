@@ -13,25 +13,30 @@ import (
 	"github.com/northfieldzz/kura/internal/infrastructure/notifier"
 )
 
-// BatchUseCase は定期バッチ処理のビジネスロジックを担うインターフェース
+// BatchUseCase は定期バッチ処理および補正処理のビジネスロジックを担うインターフェース
 type BatchUseCase interface {
-	// RunMonthlyReport は前月の月次締めレポートを集計し、Slack/ログへ通知する (毎月1日実行)
+	// RunMonthlyReport は前月の月次締めレポートを集計し、通知する (毎月1日実行)
 	RunMonthlyReport(ctx context.Context) error
 
 	// RunQuotaAlerts は当月のクォータ使用率が 80% / 90% を超えたテナントを検知して警告通知する (毎時実行)
 	RunQuotaAlerts(ctx context.Context) error
+
+	// RunReconciliation は集計結果ストアの実績からコスト管理ストアのカウンタを再構築・補正する
+	RunReconciliation(ctx context.Context) error
 }
 
 type batchUseCase struct {
-	repo     repository.QuotaRepository
-	notifier notifier.Notifier
+	costStore  repository.CostStore
+	usageStore repository.UsageStore
+	notifier   notifier.Notifier
 }
 
-// NewBatchUseCase は BatchUseCase を生成する
-func NewBatchUseCase(repo repository.QuotaRepository, n notifier.Notifier) BatchUseCase {
+// NewBatchUseCase は CostStore と UsageStore を受け取って BatchUseCase を生成する
+func NewBatchUseCase(costStore repository.CostStore, usageStore repository.UsageStore, n notifier.Notifier) BatchUseCase {
 	return &batchUseCase{
-		repo:     repo,
-		notifier: n,
+		costStore:  costStore,
+		usageStore: usageStore,
+		notifier:   n,
 	}
 }
 
@@ -42,8 +47,8 @@ func (u *batchUseCase) RunMonthlyReport(ctx context.Context) error {
 	lastMonth := entity.FormatMonthJST(now.AddDate(0, -1, 0))
 	lockKey := "monthly_report#" + lastMonth
 
-	// 1. DynamoDB 条件付き書き込みによる分散ロック取得 (30日間有効)
-	acquired, err := u.repo.AcquireLock(ctx, lockKey, 30*86400)
+	// 1. 分散ロック取得 (30日間有効)
+	acquired, err := u.usageStore.AcquireLock(ctx, lockKey, 30*86400)
 	if err != nil {
 		return fmt.Errorf("failed to acquire lock for monthly report: %w", err)
 	}
@@ -55,7 +60,7 @@ func (u *batchUseCase) RunMonthlyReport(ctx context.Context) error {
 	log.Printf("[INFO] [CRON] Acquired lock for monthly report (%s). Generating report...", lastMonth)
 
 	// 2. 前月分の全テナント利用実績を取得
-	tenants, err := u.repo.GetAllTenantsUsageByMonth(ctx, lastMonth)
+	tenants, err := u.usageStore.GetAllTenantsUsageByMonth(ctx, lastMonth)
 	if err != nil {
 		return fmt.Errorf("failed to fetch monthly usage for %s: %w", lastMonth, err)
 	}
@@ -72,120 +77,198 @@ func (u *batchUseCase) RunMonthlyReport(ctx context.Context) error {
 		totalTokens int64
 		totalCost   float64
 		tenantCount int
+		models      map[string]int64
 	}
-	serviceMap := make(map[string]*serviceAgg)
+	services := make(map[string]*serviceAgg)
 	var grandTotalTokens int64
 	var grandTotalCost float64
 
 	for _, t := range tenants {
-		sID := t.ServiceID
-		if sID == "" {
-			sID = "default"
-		}
-		agg, ok := serviceMap[sID]
+		agg, ok := services[t.ServiceID]
 		if !ok {
-			agg = &serviceAgg{serviceID: sID}
-			serviceMap[sID] = agg
+			agg = &serviceAgg{
+				serviceID: t.ServiceID,
+				models:    make(map[string]int64),
+			}
+			services[t.ServiceID] = agg
 		}
 		agg.totalTokens += t.TotalTokens
 		agg.totalCost += t.TotalCost
 		agg.tenantCount++
-
 		grandTotalTokens += t.TotalTokens
 		grandTotalCost += t.TotalCost
+
+		for mName, m := range t.Models {
+			agg.models[mName] += m.TotalTokens
+		}
 	}
 
+	// 3. レポートメッセージの構築
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("*【確定月次利用レポート: %s】*\n", lastMonth))
-	sb.WriteString(fmt.Sprintf("• 全社累計消費トークン: `%d` tokens\n", grandTotalTokens))
-	sb.WriteString(fmt.Sprintf("• 全社概算請求金額: `$%.4f USD`\n", grandTotalCost))
-	sb.WriteString(fmt.Sprintf("• 稼働テナント総数: `%d`\n\n", len(tenants)))
-	sb.WriteString("*─── サービス別内訳 ───*\n")
+	sb.WriteString(fmt.Sprintf("対象月: %s\n", lastMonth))
+	sb.WriteString(fmt.Sprintf("全サービス合計消費トークン: %s トークン\n", formatTokens(grandTotalTokens)))
+	sb.WriteString(fmt.Sprintf("全サービス合計概算コスト: $%.4f USD\n", grandTotalCost))
+	sb.WriteString(fmt.Sprintf("アクティブサービス数: %d / アクティブテナント総数: %d\n\n", len(services), len(tenants)))
+	sb.WriteString("━━━━━━━━ サービス別内訳 ━━━━━━━━\n")
 
-	// ソートして出力
-	var services []*serviceAgg
-	for _, agg := range serviceMap {
-		services = append(services, agg)
+	// サービス名順でソート
+	var svcList []*serviceAgg
+	for _, s := range services {
+		svcList = append(svcList, s)
 	}
-	sort.Slice(services, func(i, j int) bool {
-		return services[i].totalCost > services[j].totalCost
+	sort.Slice(svcList, func(i, j int) bool {
+		return svcList[i].serviceID < svcList[j].serviceID
 	})
 
-	for _, s := range services {
-		sb.WriteString(fmt.Sprintf("• *%s* (テナント数: %d): `%d` tokens | `$%.4f USD`\n",
-			s.serviceID, s.tenantCount, s.totalTokens, s.totalCost))
+	for _, s := range svcList {
+		sb.WriteString(fmt.Sprintf("🔹 %s:\n", s.serviceID))
+		sb.WriteString(fmt.Sprintf("   - テナント数: %d\n", s.tenantCount))
+		sb.WriteString(fmt.Sprintf("   - トークン数: %s\n", formatTokens(s.totalTokens)))
+		sb.WriteString(fmt.Sprintf("   - 概算コスト: $%.4f USD\n", s.totalCost))
+
+		// モデル別
+		if len(s.models) > 0 {
+			var mNames []string
+			for m := range s.models {
+				mNames = append(mNames, m)
+			}
+			sort.Strings(mNames)
+			var mSummary []string
+			for _, m := range mNames {
+				mSummary = append(mSummary, fmt.Sprintf("%s (%s)", m, formatTokens(s.models[m])))
+			}
+			sb.WriteString(fmt.Sprintf("   - モデル: %s\n", strings.Join(mSummary, ", ")))
+		}
 	}
 
-	title := fmt.Sprintf("📊 Kura 月次利用実績レポート (%s)", lastMonth)
-	return u.notifier.Send(ctx, title, sb.String(), false)
+	// 4. 通知送信 (DynamoDB / アプリ内通知 & ログ)
+	title := fmt.Sprintf("📊 Kura 月次締め利用実績レポート (%s)", lastMonth)
+	if err := u.notifier.Send(ctx, title, sb.String(), false); err != nil {
+		log.Printf("[WARN] Failed to send monthly report notification: %v", err)
+	}
+
+	log.Printf("[INFO] [CRON] Monthly report for %s successfully completed.", lastMonth)
+	return nil
 }
 
-// RunQuotaAlerts はクォータ上限間近 (80%/90%) のテナントを検知・通知する
+// RunQuotaAlerts は当月のクォータ使用率が 80% / 90% を超えたテナントを検知して警告通知する
 func (u *batchUseCase) RunQuotaAlerts(ctx context.Context) error {
 	now := time.Now().In(entity.JST)
 	currentMonth := entity.CurrentMonthJST()
-	hourSlot := now.Format("2006-01-02-15")
-	lockKey := "quota_alert#" + hourSlot
+	hourKey := now.Format("2006-01-02-15")
+	lockKey := "quota_alert#" + hourKey
 
-	// 1. DynamoDB 分散ロック取得 (1時間有効)
-	acquired, err := u.repo.AcquireLock(ctx, lockKey, 3600)
+	// 1. 分散ロック取得 (1時間有効)
+	acquired, err := u.usageStore.AcquireLock(ctx, lockKey, 3600)
 	if err != nil {
 		return fmt.Errorf("failed to acquire lock for quota alert: %w", err)
 	}
 	if !acquired {
-		log.Printf("[INFO] [CRON] Quota alert for slot %s was already processed. Skipping.", hourSlot)
 		return nil
 	}
 
-	// 2. 当月分の全テナント利用実績を取得し、サービス単位に合算
-	tenants, err := u.repo.GetAllTenantsUsageByMonth(ctx, currentMonth)
+	log.Printf("[INFO] [CRON] Acquired lock for quota alerts (%s). Scanning usages...", hourKey)
+
+	// 2. 当月分の全利用実績を取得
+	tenants, err := u.usageStore.GetAllTenantsUsageByMonth(ctx, currentMonth)
 	if err != nil {
-		return fmt.Errorf("failed to fetch tenants for quota alerts: %w", err)
+		return fmt.Errorf("failed to fetch current month usage: %w", err)
 	}
 
-	serviceCosts := make(map[string]float64)
-	var serviceIDs []string
+	// サービス単位で合算
+	serviceUsageMap := make(map[string]float64)
 	for _, t := range tenants {
-		if _, exists := serviceCosts[t.ServiceID]; !exists {
-			serviceIDs = append(serviceIDs, t.ServiceID)
-		}
-		serviceCosts[t.ServiceID] += t.TotalCost
+		serviceUsageMap[t.ServiceID] += t.TotalCost
 	}
 
-	configs, err := u.repo.GetServiceConfigs(ctx, serviceIDs)
-	if err != nil {
-		log.Printf("[WARN] [CRON] Failed to get service configs for quota alerts: %v", err)
-	}
-
-	var alertLines []string
-	for serviceID, totalCost := range serviceCosts {
-		cfg, ok := configs[serviceID]
-		if !ok || cfg == nil {
+	for serviceID, totalCost := range serviceUsageMap {
+		cfg, err := u.costStore.GetServiceConfig(ctx, serviceID)
+		if err != nil || cfg == nil {
 			continue
 		}
-		// capped プランでコスト上限値が設定されているもののみチェック
 		if cfg.CostLimit <= 0 || cfg.EffectiveBillingType() != entity.BillingTypeCapped {
 			continue
 		}
 
 		rate := (totalCost / cfg.CostLimit) * 100.0
 		if rate >= 80.0 {
-			urgency := "⚠️ [警戒: 80%超]"
-			if rate >= 90.0 {
-				urgency = "🚨 *[危険: 90%超]*"
+			urgency := "⚠️ 注意"
+			if rate >= 100.0 {
+				urgency = "🚨 制限到達"
+			} else if rate >= 90.0 {
+				urgency = "🚨 警告"
 			}
-			alertLines = append(alertLines, fmt.Sprintf("%s サービス: *%s* -> コスト消費率: `%.1f%%` (当月合計消費: $%.4f / サービス上限: $%.2f)",
-				urgency, serviceID, rate, totalCost, cfg.CostLimit))
+			msg := fmt.Sprintf("[%s] サービス '%s' の月次予算消化率が %.1f%% に達しました。\n累計コスト: $%.4f / 上限: $%.2f",
+				urgency, serviceID, rate, totalCost, cfg.CostLimit)
+			_ = u.notifier.Send(ctx, fmt.Sprintf("Kura 予算クォータアラート (%s)", serviceID), msg, true)
 		}
 	}
 
-	if len(alertLines) == 0 {
-		return nil // 警告対象なし
+	return nil
+}
+
+// RunReconciliation は集計結果ストアの実績からコスト管理ストアのカウンタを再構築・補正する
+func (u *batchUseCase) RunReconciliation(ctx context.Context) error {
+	currentMonth := entity.CurrentMonthJST()
+	lockKey := "reconciliation#" + currentMonth
+
+	// 分散ロック取得 (120秒有効)
+	acquired, err := u.usageStore.AcquireLock(ctx, lockKey, 120)
+	if err != nil {
+		return fmt.Errorf("failed to acquire lock for reconciliation: %w", err)
+	}
+	if !acquired {
+		log.Printf("[INFO] [RECONCILE] Reconciliation for %s is already running on another node. Skipping.", currentMonth)
+		return nil
+	}
+	defer func() {
+		_ = u.usageStore.ReleaseLock(ctx, lockKey)
+	}()
+
+	log.Printf("[INFO] [RECONCILE] Starting reconciliation for month %s...", currentMonth)
+
+	tenants, err := u.usageStore.GetAllTenantsUsageByMonth(ctx, currentMonth)
+	if err != nil {
+		return fmt.Errorf("failed to fetch monthly usage for reconciliation: %w", err)
 	}
 
-	title := fmt.Sprintf("🚨 月次コスト上限接近アラート (%s)", currentMonth)
-	msg := fmt.Sprintf("当月の月次コスト上限に近づいているサービスが検出されました。\n上限到達（HTTP 429）によるサービス停止を防ぐため、必要に応じて上限引き上げを実施してください。\n\n%s",
-		strings.Join(alertLines, "\n"))
+	serviceCosts := make(map[string]float64)
+	serviceTokens := make(map[string]int64)
 
-	return u.notifier.Send(ctx, title, msg, true)
+	reconciledTenants := 0
+	for _, t := range tenants {
+		// テナント個別のコストカウンタをリセット
+		if err := u.costStore.ResetCost(ctx, t.ServiceID, t.TenantID, currentMonth, t.TotalCost, t.TotalTokens); err != nil {
+			log.Printf("[WARN] [RECONCILE] Failed to reset tenant cost for %s/%s: %v", t.ServiceID, t.TenantID, err)
+		} else {
+			reconciledTenants++
+		}
+		serviceCosts[t.ServiceID] += t.TotalCost
+		serviceTokens[t.ServiceID] += t.TotalTokens
+	}
+
+	// サービス全体のコストカウンタをリセット
+	for svcID, cost := range serviceCosts {
+		tokens := serviceTokens[svcID]
+		if err := u.costStore.ResetCost(ctx, svcID, "", currentMonth, cost, tokens); err != nil {
+			log.Printf("[WARN] [RECONCILE] Failed to reset service cost for %s: %v", svcID, err)
+		}
+	}
+
+	log.Printf("[INFO] [RECONCILE] Successfully reconciled %d tenants across %d services for month %s.",
+		reconciledTenants, len(serviceCosts), currentMonth)
+	return nil
+}
+
+func formatTokens(n int64) string {
+	in := fmt.Sprintf("%d", n)
+	out := make([]byte, len(in)+(len(in)-1)/3)
+	for i, j, k := len(in)-1, len(out)-1, 0; i >= 0; i, j, k = i-1, j-1, k+1 {
+		if k > 0 && k%3 == 0 {
+			out[j] = ','
+			j--
+		}
+		out[j] = in[i]
+	}
+	return string(out)
 }

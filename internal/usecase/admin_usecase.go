@@ -24,12 +24,16 @@ type AdminUseCase interface {
 }
 
 type adminUseCase struct {
-	repo repository.QuotaRepository
+	costStore  repository.CostStore
+	usageStore repository.UsageStore
 }
 
 // NewAdminUseCase は AdminUseCase を生成する
-func NewAdminUseCase(repo repository.QuotaRepository) AdminUseCase {
-	return &adminUseCase{repo: repo}
+func NewAdminUseCase(costStore repository.CostStore, usageStore repository.UsageStore) AdminUseCase {
+	return &adminUseCase{
+		costStore:  costStore,
+		usageStore: usageStore,
+	}
 }
 
 func (u *adminUseCase) GetMonthlyUsage(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error) {
@@ -40,7 +44,7 @@ func (u *adminUseCase) GetMonthlyUsage(ctx context.Context, serviceID, month str
 		month = entity.CurrentMonthJST()
 	}
 
-	report, err := u.repo.GetServiceMonthlyUsage(ctx, serviceID, month)
+	report, err := u.usageStore.GetServiceMonthlyUsage(ctx, serviceID, month)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get service monthly usage: %w", err)
 	}
@@ -61,12 +65,12 @@ func (u *adminUseCase) SetTenantLimit(ctx context.Context, req *SetLimitRequest)
 	}
 
 	if req.TenantID != "" {
-		return u.repo.SetTenantLimit(ctx, req.ServiceID, req.TenantID, req.CostLimit, req.BillingType)
+		return u.costStore.SetTenantLimit(ctx, req.ServiceID, req.TenantID, req.CostLimit, req.BillingType)
 	}
 
-	return u.repo.SetServiceLimit(ctx, req.ServiceID, req.CostLimit, req.BillingType)
+	return u.costStore.SetServiceLimit(ctx, req.ServiceID, req.CostLimit, req.BillingType)
 }
 
 func (u *adminUseCase) ListNotifications(ctx context.Context, limit int) ([]*entity.Notification, error) {
-	return u.repo.ListNotifications(ctx, limit)
+	return u.usageStore.ListNotifications(ctx, limit)
 }

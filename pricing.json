@@ -1,0 +1,106 @@
+{
+  "version": "2026-09-24",
+  "currency": "USD",
+  "unit": "per_1m_tokens",
+  "models": {
+    "azure/gpt-5.4-mini": {
+      "input_cost": 0.15,
+      "output_cost": 0.60,
+      "cached_input_cost": 0.075,
+      "reasoning_cost": 0.60
+    },
+    "gpt-5.4-mini": {
+      "input_cost": 0.15,
+      "output_cost": 0.60,
+      "cached_input_cost": 0.075,
+      "reasoning_cost": 0.60
+    },
+    "azure/gpt-4o": {
+      "input_cost": 2.50,
+      "output_cost": 10.00,
+      "cached_input_cost": 1.25,
+      "reasoning_cost": 10.00
+    },
+    "gpt-4o": {
+      "input_cost": 2.50,
+      "output_cost": 10.00,
+      "cached_input_cost": 1.25,
+      "reasoning_cost": 10.00
+    },
+    "azure/claude-3-5-sonnet": {
+      "input_cost": 3.00,
+      "output_cost": 15.00,
+      "cached_input_cost": 0.30,
+      "reasoning_cost": 15.00
+    },
+    "claude-3-5-sonnet": {
+      "input_cost": 3.00,
+      "output_cost": 15.00,
+      "cached_input_cost": 0.30,
+      "reasoning_cost": 15.00
+    },
+    "azure/claude-3-5-haiku": {
+      "input_cost": 0.80,
+      "output_cost": 4.00,
+      "cached_input_cost": 0.08,
+      "reasoning_cost": 4.00
+    },
+    "claude-3-5-haiku": {
+      "input_cost": 0.80,
+      "output_cost": 4.00,
+      "cached_input_cost": 0.08,
+      "reasoning_cost": 4.00
+    },
+    "google/gemini-1.5-flash": {
+      "input_cost": 0.075,
+      "output_cost": 0.30,
+      "cached_input_cost": 0.01875,
+      "reasoning_cost": 0.30
+    },
+    "gemini-1.5-flash": {
+      "input_cost": 0.075,
+      "output_cost": 0.30,
+      "cached_input_cost": 0.01875,
+      "reasoning_cost": 0.30
+    },
+    "google/gemini-1.5-pro": {
+      "input_cost": 1.25,
+      "output_cost": 5.00,
+      "cached_input_cost": 0.3125,
+      "reasoning_cost": 5.00
+    },
+    "gemini-1.5-pro": {
+      "input_cost": 1.25,
+      "output_cost": 5.00,
+      "cached_input_cost": 0.3125,
+      "reasoning_cost": 5.00
+    },
+    "bedrock/amazon.titan-text-express-v1": {
+      "input_cost": 0.20,
+      "output_cost": 0.60
+    },
+    "amazon.titan-text-express-v1": {
+      "input_cost": 0.20,
+      "output_cost": 0.60
+    },
+    "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0": {
+      "input_cost": 3.00,
+      "output_cost": 15.00,
+      "cached_input_cost": 0.30,
+      "reasoning_cost": 15.00
+    },
+    "anthropic.claude-3-5-sonnet-20240620-v1:0": {
+      "input_cost": 3.00,
+      "output_cost": 15.00,
+      "cached_input_cost": 0.30,
+      "reasoning_cost": 15.00
+    }
+  },
+  "aliases": {
+    "fast": "gpt-5.4-mini",
+    "default": "gpt-5.4-mini",
+    "smart": "claude-3-5-sonnet",
+    "code": "claude-3-5-sonnet",
+    "flash": "gemini-1.5-flash"
+  }
+}

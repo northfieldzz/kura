@@ -24,6 +24,10 @@ func (m *mockBatchUseCase) RunQuotaAlerts(ctx context.Context) error {
 	return m.quotaAlertsErr
 }
 
+func (m *mockBatchUseCase) RunReconciliation(ctx context.Context) error {
+	return nil
+}
+
 func TestCronScheduler_StartStop(t *testing.T) {
 	mockUC := &mockBatchUseCase{}
 	scheduler := NewCronScheduler(mockUC)

@@ -1,21 +1,52 @@
-# Security Policy
+# セキュリティポリシー (Security Policy)
 
-## Supported Versions
+Kura プロジェクトでは、セキュリティの維持とユーザーの保護を最優先事項としています。本ドキュメントでは、サポートされているバージョン、脆弱性の報告手順、およびセキュリティ対応プロセスについて説明します。
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+---
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+## サポート対象バージョン
 
-## Reporting a Vulnerability
+セキュリティ修正およびアップデートが提供されるバージョンは以下の通りです。
 
-Use this section to tell people how to report a vulnerability.
+| バージョン | サポート状況 | 備考 |
+| :--- | :---: | :--- |
+| `2.x` | :white_check_mark: | 現行メジャーバージョン（積極的サポート中） |
+| `1.x` | :white_check_mark: | 重要なセキュリティ修正のみ対応 |
+| `< 1.0` | :x: | サポート終了 |
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+---
+
+## 脆弱性の報告手順
+
+Kura においてセキュリティ上の脆弱性や懸念を発見した場合は、**公開の Issue や Pull Request を作成せず**、以下の非公開手順に従ってご報告ください。
+
+### 報告方法
+1. **GitHub Security Advisory (推奨)**:
+   - リポジトリの [Security タブ](../../security/advisories) から **「Report a vulnerability」** を選択し、非公開のアドバイザリを作成してください。
+2. **メールでの報告**:
+   - リポジトリ管理者のメールアドレス（または GitHub プロフィールに記載の連絡先）へ詳細を送信してください。
+
+### 報告に含めていただきたい情報
+- 脆弱性の概要および影響範囲（対象コンポーネント、エンドポイント）
+- 再現手順（PoC コード、リクエストペイロード、環境情報）
+- 潜在的な影響（認証回避、情報漏洩、サービス停止など）
+- 既知の緩和策や回避手順（あれば）
+
+---
+
+## 対応プロセス
+
+1. **受領確認**: 報告を受領後、原則として 48 時間以内に受領確認のご連絡を行います。
+2. **トリアージ & 検証**: 開発チームにて脆弱性の再現と深刻度の評価を実施します。
+3. **修正 & パッチ作成**: 非公開ブランチにて修正パッチを作成・検証します。
+4. **リリース & 公開**: 修正版のリリースと同時に、GitHub Security Advisory にて詳細と CVE 情報を公表します。
+
+---
+
+## セキュリティ設計原則
+
+Kura の設計および実装においては、以下のセキュリティプラクティスを厳格に順守しています：
+
+- **シークレットのハードコード禁止 (Fail-Fast)**: API キーや認証トークンなどの認証情報はコード内にデフォルト値をフォールバックとして持たせず、未設定時は起動時エラーまたはアクセス遮断とします。
+- **認証コンテキストのコンフリクト拒絶**: ゲートウェイでのヘッダー解決時、属性値の不一致（コンフリクト）を検知した場合は暗黙の上書きを行わず `403 Forbidden` または `400 Bad Request` で即座に拒絶します。
+- **データレジデンシーの遵守**: `X-Data-Residency: japan` 指定時は、日本国内リージョンのエンドポイントのみにルーティングを限定します。
