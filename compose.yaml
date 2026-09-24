@@ -23,6 +23,11 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       DOCS_PATH: ${DOCS_PATH:-/docs}
       OPENAPI_PATH: ${OPENAPI_PATH:-/openapi}
+      # ゲートウェイ共有シークレット (ローカル検証用既定値: INSECURE_NO_GATEWAY_AUTH=true。本番では必ず無効化し GATEWAY_SHARED_SECRET を設定すること)
+      GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:-}
+      GATEWAY_SHARED_SECRET_PREVIOUS: ${GATEWAY_SHARED_SECRET_PREVIOUS:-}
+      GATEWAY_SECRET_HEADER: ${GATEWAY_SECRET_HEADER:-X-Gateway-Secret}
+      INSECURE_NO_GATEWAY_AUTH: ${INSECURE_NO_GATEWAY_AUTH:-true}
     volumes:
       - kura-data:/data
     healthcheck:

@@ -12,18 +12,19 @@ import (
 
 // Metrics は Prometheus メトリクス定義を保持する
 type Metrics struct {
-	Registry                    *prometheus.Registry
-	RequestsTotal               *prometheus.CounterVec
-	TokensTotal                 *prometheus.CounterVec
-	RequestDuration             *prometheus.HistogramVec
-	TimeToFirstToken            *prometheus.HistogramVec
-	EstimatedCostTotal          *prometheus.CounterVec
-	ActiveRequests              prometheus.Gauge
-	CacheHitsTotal              *prometheus.CounterVec
-	CacheMissesTotal            *prometheus.CounterVec
+	Registry                     *prometheus.Registry
+	RequestsTotal                *prometheus.CounterVec
+	TokensTotal                  *prometheus.CounterVec
+	RequestDuration              *prometheus.HistogramVec
+	TimeToFirstToken             *prometheus.HistogramVec
+	EstimatedCostTotal           *prometheus.CounterVec
+	ActiveRequests               prometheus.Gauge
+	GatewayAuthFailuresTotal     prometheus.Counter
+	CacheHitsTotal               *prometheus.CounterVec
+	CacheMissesTotal             *prometheus.CounterVec
 	CacheNegativeRejectionsTotal *prometheus.CounterVec
-	CacheFlushCountTotal        prometheus.Counter
-	CacheBufferedCostUSD        prometheus.Gauge
+	CacheFlushCountTotal         prometheus.Counter
+	CacheBufferedCostUSD         prometheus.Gauge
 }
 
 // NewMetrics は Prometheus メトリクスおよび標準コレクターを初期化・登録する
@@ -94,6 +95,14 @@ func NewMetrics() *Metrics {
 			},
 		),
 
+		GatewayAuthFailuresTotal: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "kura",
+				Name:      "gateway_auth_failures_total",
+				Help:      "Total number of failed gateway shared secret authentication attempts",
+			},
+		),
+
 		CacheHitsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "kura",
@@ -145,6 +154,7 @@ func NewMetrics() *Metrics {
 		m.TimeToFirstToken,
 		m.EstimatedCostTotal,
 		m.ActiveRequests,
+		m.GatewayAuthFailuresTotal,
 		m.CacheHitsTotal,
 		m.CacheMissesTotal,
 		m.CacheNegativeRejectionsTotal,
@@ -240,6 +250,14 @@ func (m *Metrics) RecordTokens(model string, prompt, completion, total int64, co
 	if cost > 0 {
 		m.EstimatedCostTotal.WithLabelValues(model, serviceID).Add(cost)
 	}
+}
+
+// RecordGatewayAuthFailure はゲートウェイ共有シークレット認証の失敗を記録する
+func (m *Metrics) RecordGatewayAuthFailure() {
+	if m == nil || m.GatewayAuthFailuresTotal == nil {
+		return
+	}
+	m.GatewayAuthFailuresTotal.Inc()
 }
 
 // RecordCacheHit はキャッシュヒット数を記録する

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"log"
 	"os"
 	"strconv"
 )
@@ -38,6 +40,12 @@ type Config struct {
 	DocsPath                       string
 	OpenAPIPath                    string
 	EnforceTollgateAuth            bool
+
+	// Gateway Shared Secret Verification
+	GatewaySharedSecret            string
+	GatewaySharedSecretPrevious    string
+	GatewaySecretHeader            string
+	InsecureNoGatewayAuth          bool
 
 	// Cache Layer Settings
 	CacheEnabled                   bool
@@ -82,6 +90,12 @@ func Load() *Config {
 		OpenAPIPath:                    getEnvPath("OPENAPI_PATH", "/openapi"), // 空文字または "none"/"off" で無効化
 		EnforceTollgateAuth:            getEnvAsBool("ENFORCE_TOLLGATE_AUTH", false),
 
+		// Gateway Shared Secret Verification
+		GatewaySharedSecret:            getEnv("GATEWAY_SHARED_SECRET", ""),
+		GatewaySharedSecretPrevious:    getEnv("GATEWAY_SHARED_SECRET_PREVIOUS", ""),
+		GatewaySecretHeader:            getEnv("GATEWAY_SECRET_HEADER", "X-Gateway-Secret"),
+		InsecureNoGatewayAuth:          getEnvAsBool("INSECURE_NO_GATEWAY_AUTH", false),
+
 		// Cache Layer Settings
 		CacheEnabled:                   getEnvAsBool("CACHE_ENABLED", true),
 		CacheNegativeTTLSeconds:        getEnvAsInt("CACHE_NEGATIVE_TTL_SECONDS", 300),
@@ -89,6 +103,32 @@ func Load() *Config {
 		CacheBalanceTTLSeconds:         getEnvAsInt("CACHE_BALANCE_TTL_SECONDS", 0), // 既定オフ
 		CacheBatchFlushIntervalSeconds: getEnvAsInt("CACHE_BATCH_FLUSH_INTERVAL_SECONDS", 0), // 既定オフ
 	}
+}
+
+// ValidateGatewayAuth は起動時にゲートウェイ共有シークレットの設定を検証する
+func (c *Config) ValidateGatewayAuth() error {
+	if c.InsecureNoGatewayAuth {
+		log.Printf("================================================================================")
+		log.Printf("[WARN] [SECURITY] INSECURE_NO_GATEWAY_AUTH is enabled.")
+		log.Printf("[WARN] [SECURITY] Gateway shared secret verification is DISABLED.")
+		log.Printf("[WARN] [SECURITY] Do NOT use this setting in production environments!")
+		log.Printf("================================================================================")
+		return nil
+	}
+
+	if c.GatewaySharedSecret == "" {
+		return fmt.Errorf("GATEWAY_SHARED_SECRET is required (at least 32 characters). Set GATEWAY_SHARED_SECRET or set INSECURE_NO_GATEWAY_AUTH=true for insecure local development")
+	}
+
+	if len(c.GatewaySharedSecret) < 32 {
+		return fmt.Errorf("GATEWAY_SHARED_SECRET must be at least 32 characters long (got %d characters)", len(c.GatewaySharedSecret))
+	}
+
+	if c.GatewaySharedSecretPrevious != "" && len(c.GatewaySharedSecretPrevious) < 32 {
+		return fmt.Errorf("GATEWAY_SHARED_SECRET_PREVIOUS must be at least 32 characters long (got %d characters)", len(c.GatewaySharedSecretPrevious))
+	}
+
+	return nil
 }
 
 // getEnvPath は環境変数が定義されていれば空文字や指定値をそのまま採用し、未定義ならデフォルト値を返す

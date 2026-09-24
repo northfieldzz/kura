@@ -2,12 +2,14 @@ package http
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
 	"github.com/northfieldzz/kura/internal/usecase"
 )
 
@@ -18,14 +20,60 @@ const (
 	RequestIDContextKey contextKey = "request_id"
 )
 
+// GatewayAuthConfig はゲートウェイ共有シークレット認証の設定
+type GatewayAuthConfig struct {
+	SharedSecret         string
+	SharedSecretPrevious string
+	HeaderName           string
+	InsecureNoAuth       bool
+}
+
 // AuthMiddleware はマルチテナント解決およびクォータ検証を行う HTTP ミドルウェア
 type AuthMiddleware struct {
-	authUseCase usecase.AuthUseCase
+	authUseCase       usecase.AuthUseCase
+	gatewayAuthConfig GatewayAuthConfig
+	metrics           *metrics.Metrics
 }
 
 // NewAuthMiddleware は AuthMiddleware を生成する
-func NewAuthMiddleware(authUseCase usecase.AuthUseCase) *AuthMiddleware {
-	return &AuthMiddleware{authUseCase: authUseCase}
+func NewAuthMiddleware(authUseCase usecase.AuthUseCase, opts ...any) *AuthMiddleware {
+	m := &AuthMiddleware{authUseCase: authUseCase}
+	for _, opt := range opts {
+		switch v := opt.(type) {
+		case GatewayAuthConfig:
+			m.gatewayAuthConfig = v
+		case *metrics.Metrics:
+			m.metrics = v
+		}
+	}
+	if m.gatewayAuthConfig.HeaderName == "" {
+		m.gatewayAuthConfig.HeaderName = "X-Gateway-Secret"
+	}
+	return m
+}
+
+// GatewayAuthConfig を返す
+func (m *AuthMiddleware) GatewayAuthConfig() GatewayAuthConfig {
+	return m.gatewayAuthConfig
+}
+
+// Metrics を返す
+func (m *AuthMiddleware) Metrics() *metrics.Metrics {
+	return m.metrics
+}
+
+// VerifyGatewaySecret はヘッダー値が現行または旧シークレットと定数時間一致するか検証する
+func VerifyGatewaySecret(headerVal, currentSecret, previousSecret string) bool {
+	if headerVal == "" {
+		return false
+	}
+	if currentSecret != "" && subtle.ConstantTimeCompare([]byte(headerVal), []byte(currentSecret)) == 1 {
+		return true
+	}
+	if previousSecret != "" && subtle.ConstantTimeCompare([]byte(headerVal), []byte(previousSecret)) == 1 {
+		return true
+	}
+	return false
 }
 
 // Wrap は HTTP ハンドラを認証 & クォータ検証 & レスポンスヘッダー付与でラップする
@@ -38,7 +86,25 @@ func (m *AuthMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 		}
 		w.Header().Set("X-Request-ID", requestID)
 
-		// 2. 認証 & クォータ超過判定 (HTTP ヘッダーから解決)
+		// 2. ゲートウェイ共有シークレット認証 (INSECURE_NO_GATEWAY_AUTH=true でない限り必須)
+		if !m.gatewayAuthConfig.InsecureNoAuth {
+			headerName := m.gatewayAuthConfig.HeaderName
+			secretHeader := r.Header.Get(headerName)
+			if !VerifyGatewaySecret(secretHeader, m.gatewayAuthConfig.SharedSecret, m.gatewayAuthConfig.SharedSecretPrevious) {
+				if m.metrics != nil {
+					m.metrics.RecordGatewayAuthFailure()
+				}
+				WriteError(w, entity.NewStandardError(
+					http.StatusUnauthorized,
+					entity.ErrorTypeUnauthorized,
+					"Unauthorized: invalid or missing gateway authentication",
+					"unauthorized",
+				))
+				return
+			}
+		}
+
+		// 3. 認証 & クォータ超過判定 (HTTP ヘッダーから解決)
 		authResult, errResp := m.authUseCase.AuthenticateRequest(r.Context(), r)
 		if errResp != nil {
 			WriteError(w, errResp)
@@ -79,4 +145,3 @@ func GetRequestIDFromContext(ctx context.Context) string {
 	}
 	return ""
 }
-

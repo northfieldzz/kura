@@ -37,6 +37,7 @@ type HealthOutput struct {
 
 // ChatCompletionInput はチャット補完リクエスト型
 type ChatCompletionInput struct {
+	GatewaySecret string                       `header:"X-Gateway-Secret" doc:"ゲートウェイ共有シークレット (GATEWAY_SHARED_SECRET)" example:"gw_secret_abcdef1234567890abcdef1234567890"`
 	ServiceID     string                       `header:"X-Service-ID" doc:"呼び出し元サービス識別子" required:"true" example:"payment-service"`
 	TenantID      string                       `header:"X-Tenant-ID" doc:"テナント・組織識別子" required:"true" example:"tenant-corp-a"`
 	KeyID         string                       `header:"X-Key-ID" doc:"Tollgate API キー UUID" example:"550e8400-e29b-41d4-a716-446655440000"`
@@ -64,8 +65,9 @@ type ChatCompletionOutput struct {
 
 // RealtimeInput は Realtime WebSocket 接続型
 type RealtimeInput struct {
-	ServiceID string `header:"X-Service-ID" doc:"呼び出し元サービス識別子" required:"true" example:"payment-service"`
-	TenantID  string `header:"X-Tenant-ID" doc:"テナント・組織識別子" required:"true" example:"tenant-corp-a"`
+	GatewaySecret string `header:"X-Gateway-Secret" doc:"ゲートウェイ共有シークレット (GATEWAY_SHARED_SECRET)" example:"gw_secret_abcdef1234567890abcdef1234567890"`
+	ServiceID     string `header:"X-Service-ID" doc:"呼び出し元サービス識別子" required:"true" example:"payment-service"`
+	TenantID      string `header:"X-Tenant-ID" doc:"テナント・組織識別子" required:"true" example:"tenant-corp-a"`
 }
 
 // RealtimeOutput は Realtime WebSocket 接続レスポンス型
@@ -78,8 +80,9 @@ type RealtimeOutput struct {
 
 // KeyUsageInput はキー別残枠確認リクエスト型
 type KeyUsageInput struct {
-	ServiceID string `header:"X-Service-ID" doc:"呼び出し元サービス識別子" required:"true" example:"payment-service"`
-	TenantID  string `header:"X-Tenant-ID" doc:"テナント・組織識別子" required:"true" example:"tenant-corp-a"`
+	GatewaySecret string `header:"X-Gateway-Secret" doc:"ゲートウェイ共有シークレット (GATEWAY_SHARED_SECRET)" example:"gw_secret_abcdef1234567890abcdef1234567890"`
+	ServiceID     string `header:"X-Service-ID" doc:"呼び出し元サービス識別子" required:"true" example:"payment-service"`
+	TenantID      string `header:"X-Tenant-ID" doc:"テナント・組織識別子" required:"true" example:"tenant-corp-a"`
 }
 
 // KeyUsageOutput はキー別残枠確認レスポンス型
@@ -183,11 +186,17 @@ func SetupHumaAPI(
 
 	// セキュリティスキームの登録（日本語）
 	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"GatewayAuth": {
+			Type:        "apiKey",
+			In:          "header",
+			Name:        "X-Gateway-Secret",
+			Description: "信頼済みゲートウェイ共有シークレット認証（`X-Gateway-Secret`）",
+		},
 		"TenantAuth": {
 			Type:        "apiKey",
 			In:          "header",
 			Name:        "X-Service-ID",
-			Description: "サービス・テナント認証（必須ヘッダー: `X-Service-ID`, `X-Tenant-ID`）",
+			Description: "サービス・テナント識別（必須ヘッダー: `X-Service-ID`, `X-Tenant-ID`）",
 		},
 		"AdminAuth": {
 			Type:        "http",
@@ -292,7 +301,7 @@ func SetupHumaAPI(
 		Description: "OpenAI 互換のチャット補完エンドポイント。Azure OpenAI、Claude、Gemini へのリバースプロキシ中継、トークン集計、コスト算出、上限判定を実行。Server-Sent Events (SSE) によるストリーミングに対応。",
 		Tags:        []string{"サービス向け API"},
 		Security: []map[string][]string{
-			{"TenantAuth": {}},
+			{"GatewayAuth": {}, "TenantAuth": {}},
 		},
 	}, func(ctx context.Context, input *ChatCompletionInput) (*ChatCompletionOutput, error) {
 		if authMiddleware != nil && handler != nil {
@@ -318,7 +327,7 @@ func SetupHumaAPI(
 		Description: "Azure OpenAI Realtime API への WebSocket 接続をパススルーし、低遅延なマルチモーダル音声・テキストストリーミングを実現。",
 		Tags:        []string{"サービス向け API"},
 		Security: []map[string][]string{
-			{"TenantAuth": {}},
+			{"GatewayAuth": {}, "TenantAuth": {}},
 		},
 	}, func(ctx context.Context, input *RealtimeInput) (*RealtimeOutput, error) {
 		if authMiddleware != nil && handler != nil {
@@ -339,7 +348,7 @@ func SetupHumaAPI(
 		Description: "サービスまたはテナントに紐付く当月のトークン消費量、利用コスト、残り予算枠をリアルタイムに照会する。",
 		Tags:        []string{"サービス向け API"},
 		Security: []map[string][]string{
-			{"TenantAuth": {}},
+			{"GatewayAuth": {}, "TenantAuth": {}},
 		},
 	}, func(ctx context.Context, input *KeyUsageInput) (*KeyUsageOutput, error) {
 		if authMiddleware != nil && handler != nil {

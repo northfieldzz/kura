@@ -5,13 +5,20 @@ All notable changes to this project will be documented in this file.
 ## [v1.0.0] - 2026-09-24
 
 ### ⚠️ Breaking Changes (破壊的変更)
+- **ゲートウェイ共有シークレットによる信頼確認の必須化**: テナント識別ヘッダー（`X-Tenant-ID` 等）の偽装を防ぐため、サービスエンドポイントへのリクエストに対して `X-Gateway-Secret`（環境変数 `GATEWAY_SHARED_SECRET`、最低 32 文字）の検証を標準で必須化した。未設定時は起動を拒否する（開発時のみ `INSECURE_NO_GATEWAY_AUTH=true` でバイパス可能）。
 - **RPM (分間リクエスト制限) の削除**: プロセス内メモリ依存を排除しマルチコンテナスケールを可能にするため、RPM リミッターおよび環境変数 `RATE_LIMIT_RPM`、Prometheus のレートリミットメトリクスを Kura から完全に排除した。RPM 制御は前段の認証ゲートウェイ（Tollgate 等）の責務となる。
 - **ストアアーキテクチャの役割分離**: 単一の `QuotaRepository` をホットパス用の `CostStore`（残枠確認・アトミック加算）と永続用の `UsageStore`（利用実績記録・月次集計・分散ロック）に分離した。
-- **環境変数の刷新**: `COST_STORE`, `USAGE_STORE`, `VALKEY_URL`, `POSTGRES_DSN`, `PRICING_FILE`, `UNKNOWN_MODEL_POLICY`, `BEDROCK_API_KEY`, `BEDROCK_REGION`, `BEDROCK_ENDPOINT` を追加した。
+- **環境変数の刷新**: `GATEWAY_SHARED_SECRET`, `GATEWAY_SHARED_SECRET_PREVIOUS`, `GATEWAY_SECRET_HEADER`, `INSECURE_NO_GATEWAY_AUTH`, `COST_STORE`, `USAGE_STORE`, `VALKEY_URL`, `POSTGRES_DSN`, `PRICING_FILE`, `UNKNOWN_MODEL_POLICY`, `BEDROCK_API_KEY`, `BEDROCK_REGION`, `BEDROCK_ENDPOINT` を追加した。
 - **ストア既定値の変更**: ストレージ未指定時のデフォルトバックエンドを `memory` から `sqlite` に変更した。外部サービスなしで起動した場合でも、再起動後に使用量・設定が永続化される。
 - **`memory` 設定値の廃止**: `COST_STORE=memory` および `USAGE_STORE=memory` の本番設定を廃止した。環境変数で `memory` が指定された場合は、エラーで起動を拒絶し `sqlite` の利用を促すメッセージを出力する（インメモリ実装はテストヘルパー専用に移行）。
 
 ### 🚀 New Features (新機能)
+- **ゲートウェイ共有シークレット検証 & ゼロダウンタイムローテーション**:
+  - `crypto/subtle.ConstantTimeCompare` による定数時間検証。
+  - `GATEWAY_SHARED_SECRET_PREVIOUS` による新旧シークレットの並行受け付け（無停止ローテーション）。
+  - ヘッダー名カスタマイズ (`GATEWAY_SECRET_HEADER`)。
+  - シークレット漏洩防止（ログ・メトリクス・上流 LLM プロバイダー転送から完全除外）。
+  - Prometheus メトリクス `kura_gateway_auth_failures_total` の追加。
 - **マルチバックエンド対応**:
   - `CostStore`: DynamoDB, Valkey / Redis, PostgreSQL (非推奨), SQLite
   - `UsageStore`: DynamoDB, PostgreSQL, SQLite

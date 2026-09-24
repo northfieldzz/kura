@@ -13,18 +13,71 @@
 Kura は独立した LLM ゲートウェイとして単体で運用できるほか、前段に認証プロキシや API ゲートウェイ（Kong, Envoy, AWS API Gateway, 自前認証層、または姉妹プロジェクトの [**Tollgate**](https://github.com/northfieldzz/tollgate) 等）を配置して組み合わせることも可能である。Kura 自身は上流プロバイダーへの安全なルーティング、マルチコンテナ環境でのリアルタイムなコストガード（ソフトリミット）、仮想モデルエイリアス解決、国内データレジデンシー制御に専念する。分間リクエスト制限（RPM）などのレート制限は前段ゲートウェイの責務として分離している。
 
 > [!IMPORTANT]
-> Kura はリクエストヘッダー（`X-Service-ID`, `X-Tenant-ID` 等）を信頼してテナント解決およびクォータ制御を行う設計である。一般 API ではクライアント Bearer キー等の署名・認証検証を行わないため、クライアントからのヘッダーを検証・上書きする認証層なしにパブリックインターネットへ直接公開してはならない。
+> Kura はリクエストヘッダー（`X-Service-ID`, `X-Tenant-ID` 等）を信頼してテナント解決およびクォータ制御を行う設計である。エンドユーザーの API キー認証は前段ゲートウェイの責務とし、Kura は「リクエストが信頼するゲートウェイから到達したこと」を**ゲートウェイ共有シークレット**（`X-Gateway-Secret`）で検証する。共有シークレットはネットワーク分離（VPC / ファイアウォール等）の代替ではなく、多層防御の一部である。Kura を単体でパブリックインターネットへ直接公開してはならない。
 
 ---
 
-## 運用モード
+## 運用モードと信頼モデル
 
 Kura はシステムのセキュリティ要件やネットワーク構成に応じて、以下の 2 つの運用形態に対応している。
 
-| 運用形態 | 適用シナリオ | 認証・ヘッダー解決の仕組み |
+| 運用形態 | 適用シナリオ | 認証・信頼確認の仕組み |
 | :--- | :--- | :--- |
-| **単体運用**<br/>(Standalone) | 信頼されたプライベートネットワーク（同一 VPC 内のマイクロサービス間通信、社内開発環境など） | クライアントが直接 `X-Service-ID` および `X-Tenant-ID` を付与してリクエストする。Kura はヘッダーの存在確認とクォータ判定のみを行い、キー検証は行わない。 |
-| **認証ゲートウェイ併用**<br/>(Gateway-Backed) | パブリックインターネット境界、ゼロトラスト環境、エンドユーザー/テナントへの API キー直接配布 | 前段に認証ゲートウェイ（Tollgate, Kong, 自前プロキシ等）を配置。前段で API キー・JWT を検証した上で、正しいテナント識別ヘッダーを安全に付与して Kura へ転送する。 |
+| **単体運用 / 開発**<br/>(Standalone / Dev) | ローカル開発環境、または完全隔離されたプライベートネットワーク | `INSECURE_NO_GATEWAY_AUTH=true` を明示して起動。クライアントが直接 `X-Service-ID` および `X-Tenant-ID` を付与してリクエストする（検証なし）。 |
+| **認証ゲートウェイ併用**<br/>(Gateway-Backed / Production) | 本番環境、マルチコンテナ環境、パブリックインターネット境界 | 前段に認証ゲートウェイ（Tollgate, Kong, 自前プロキシ等）を配置。ゲートウェイがエンドユーザー認証を行い、`X-Gateway-Secret` と正しいテナント識別ヘッダーを付与して Kura へ転送する。 |
+
+---
+
+## 信頼関係とゲートウェイ認証 (Gateway Shared Secret)
+
+Kura は `X-Tenant-ID` や `X-Service-ID` 等のヘッダーを信頼してクォータ制御を行う設計である。プライベートネットワーク内であっても、同一ネットワーク内の別ワークロードによるヘッダー偽装を防ぐため、**ゲートウェイ共有シークレット**による相互信頼確認を提供する。
+
+### 基本方針
+- **エンドユーザー認証の分離**: Kura はエンドユーザーの API キー認証を行わない（前段ゲートウェイの責務）。
+- **ゲートウェイ信頼確認**: Kura は「リクエストが信頼するゲートウェイから送信されたこと」のみを、リクエストヘッダー（既定: `X-Gateway-Secret`）の定数時間比較（`crypto/subtle.ConstantTimeCompare`）により確認する。
+- **プロバイダー中継からの除外**: `X-Gateway-Secret` は Kura 内部で消費・検証され、ログ・メトリクスはもちろん、上流の LLM プロバイダー（Foundry / Gemini / Bedrock）へのリクエストヘッダーには一切転送されない。
+
+### 設定方法
+
+シークレットは **32 文字以上**のランダムな文字列を設定する必要がある（32 文字未満または未設定の場合は起動を拒否する）。
+
+```bash
+# 安全な 32 バイト（64 文字の 16 進数）シークレットの生成例
+openssl rand -hex 32
+```
+
+```env
+# 本番環境 (.env)
+GATEWAY_SHARED_SECRET="a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0"
+GATEWAY_SECRET_HEADER="X-Gateway-Secret"   # 任意 (既定: X-Gateway-Secret)
+
+# 開発・検証専用 (シークレット検証をバイパス)
+# INSECURE_NO_GATEWAY_AUTH=true
+```
+
+### 無停止シークレットローテーション手順
+
+サービスを停止することなくシークレットをローテーションできるよう、新旧シークレットを並行して受け付ける環境変数 `GATEWAY_SHARED_SECRET_PREVIOUS` を提供している。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Admin as 管理者
+    participant Kura as Kura (LLM Gateway)
+    participant GW as 認証ゲートウェイ (Tollgate / Proxy)
+
+    Admin->>Kura: 1. 旧シークレットを PREVIOUS に移動、新シークレットを SHARED_SECRET に設定して再起動
+    Note over Kura: 新旧いずれのシークレットでも 200 OK
+    Admin->>GW: 2. ゲートウェイの送信シークレットを新シークレットへ切り替え
+    GW->>Kura: 新シークレットでリクエスト送信 (200 OK)
+    Admin->>Kura: 3. Kura から PREVIOUS を削除して再起動
+    Note over Kura: 新シークレットのみを受け付ける状態へ完全移行
+```
+
+1. 新しいシークレット `SECRET_NEW` を生成する。
+2. Kura の環境変数を `GATEWAY_SHARED_SECRET=SECRET_NEW`、`GATEWAY_SHARED_SECRET_PREVIOUS=SECRET_OLD` に更新してデプロイ/再起動する（この期間、Kura は新旧両方のシークレットを受け付ける）。
+3. 前段ゲートウェイ側の送信ヘッダー設定を `SECRET_NEW` に切り替える。
+4. Kura から `GATEWAY_SHARED_SECRET_PREVIOUS` を削除して再起動し、ローテーションを完了する。
 
 ---
 
@@ -303,9 +356,9 @@ kura/
 
 | パス | メソッド | 認証 | 概要 |
 | :--- | :---: | :---: | :--- |
-| `/v1/chat/completions` | `POST` | ヘッダー信頼 (`X-Service-ID`, `X-Tenant-ID`) | OpenAI 互換チャット補完 (同期 / SSE ストリーミング) |
-| `/v1/realtime` | `GET` | ヘッダー信頼 (`X-Service-ID`, `X-Tenant-ID`) | OpenAI Realtime API (WebSocket 双方向パススルー) |
-| `/v1/usage` | `GET` | ヘッダー信頼 (`X-Service-ID`, `X-Tenant-ID`) | テナント月次利用量・残予算枠の照会 |
+| `/v1/chat/completions` | `POST` | 共有シークレット (`X-Gateway-Secret`)<br/>+ ヘッダー信頼 (`X-Service-ID`, `X-Tenant-ID`) | OpenAI 互換チャット補完 (同期 / SSE ストリーミング) |
+| `/v1/realtime` | `GET` | 共有シークレット (`X-Gateway-Secret`)<br/>+ ヘッダー信頼 (`X-Service-ID`, `X-Tenant-ID`) | OpenAI Realtime API (WebSocket 双方向パススルー) |
+| `/v1/usage` | `GET` | 共有シークレット (`X-Gateway-Secret`)<br/>+ ヘッダー信頼 (`X-Service-ID`, `X-Tenant-ID`) | テナント月次利用量・残予算枠の照会 |
 
 ### 管理 API (Admin)
 
@@ -336,6 +389,10 @@ Kura は起動時に以下の環境変数を読み込んで動作する。
 
 | 変数名 | デフォルト値 | 必須 | 説明 |
 | :--- | :--- | :---: | :--- |
+| `GATEWAY_SHARED_SECRET` | 空文字 | **必須** | 信頼するゲートウェイとの共有シークレット（32 文字以上必須。未設定時は起動拒否） |
+| `GATEWAY_SHARED_SECRET_PREVIOUS` | 空文字 | 任意 | ローテーション用の旧シークレット（32 文字以上。新旧両方を並行して受け付け） |
+| `GATEWAY_SECRET_HEADER` | `X-Gateway-Secret` | 任意 | 共有シークレットを受信する HTTP ヘッダー名 |
+| `INSECURE_NO_GATEWAY_AUTH` | `false` | 任意 | `true` の場合、共有シークレットの検証なしで起動（**開発・検証専用**。起動時に警告出力） |
 | `PORT` | `8080` | 任意 | HTTP サーバー待受ポート番号 |
 | `AWS_REGION` | `ap-northeast-1` | 任意 | AWS リージョン |
 | `COST_STORE` | `sqlite` | 任意 | コスト管理ストア種別 (`sqlite` / `dynamodb` / `valkey` / `redis` / `postgres`) |
@@ -384,11 +441,11 @@ Kura は起動時に以下の環境変数を読み込んで動作する。
 ```bash
 git clone https://github.com/northfieldzz/kura.git
 cd kura
-cp .env.example .env  # 必要に応じて環境変数を編集
+cp .env.example .env  # 必要に応じてシークレットや環境変数を編集
 ```
 
 ### 2. Docker Compose での最短起動 (SQLite 既定)
-外部 DB の立ち上げ不要で、データ用ボリュームをマウントした SQLite 構成で即座に起動する。
+`compose.yaml` はローカル開発用に `INSECURE_NO_GATEWAY_AUTH=true` が指定されているため、シークレット生成なしで即座に起動する（データ用ボリュームをマウントした SQLite 構成）。
 
 ```bash
 docker compose up -d --build
@@ -404,13 +461,28 @@ docker compose --profile valkey --profile postgres up -d --build
 ```
 
 ### 3. Docker 単体での最短起動
+
+**本番 / 通常モード (共有シークレットを設定して起動)**:
 ```bash
-docker run -d -p 8080:8080 -v kura-data:/data ghcr.io/northfieldzz/kura:latest
+docker run -d -p 8080:8080 \
+  -e GATEWAY_SHARED_SECRET="a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0" \
+  -v kura-data:/data ghcr.io/northfieldzz/kura:latest
+```
+
+**開発・検証モード (シークレット検証をバイパス)**:
+```bash
+docker run -d -p 8080:8080 \
+  -e INSECURE_NO_GATEWAY_AUTH=true \
+  -v kura-data:/data ghcr.io/northfieldzz/kura:latest
 ```
 
 ### 4. Go 単体での起動
 ```bash
-go run ./cmd/server
+# 開発時 (バイパスフラグで起動)
+INSECURE_NO_GATEWAY_AUTH=true go run ./cmd/server
+
+# または共有シークレットを指定して起動
+GATEWAY_SHARED_SECRET="a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0" go run ./cmd/server
 ```
 ※ 既定で `./data/kura.db` に SQLite データベースが自動生成され、再起動後もデータが保持される。
 
@@ -424,13 +496,14 @@ go run ./cmd/server
 
 ## API 利用例
 
-### 1. 単体呼び出し例 (プライベートネットワーク・開発環境)
+### 1. 共有シークレット付き呼び出し例 (本番・ゲートウェイ経由)
 
-ヘッダーに `X-Service-ID` と `X-Tenant-ID` を直接付与してリクエストを送信する。
+ヘッダーに `X-Gateway-Secret`、`X-Service-ID`、`X-Tenant-ID` を付与してリクエストを送信する。
 
 ```bash
 # チャット補完 (OpenAI 互換・仮想モデル fast 指定・SSE ストリーミング)
 curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "X-Gateway-Secret: a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0" \
   -H "X-Service-ID: payment-service" \
   -H "X-Tenant-ID: tenant-corp-a" \
   -H "X-Environment: staging" \
@@ -445,12 +518,14 @@ curl -X POST http://localhost:8080/v1/chat/completions \
     "stream": true
   }'
 ```
+※ `INSECURE_NO_GATEWAY_AUTH=true` で起動している場合は `X-Gateway-Secret` なしでもリクエスト可能。
 
-### 2. 前段ゲートウェイ併用例 (Tollgate による構成例)
+### 2. 前段ゲートウェイ併用例 (Tollgate / Proxy による構成例)
 
-RPM 制限やクライアント API キー検証は前段ゲートウェイ側で実施する。以下は姉妹プロジェクト [Tollgate](https://github.com/northfieldzz/tollgate) を組み合わせた場合の構成例である。
+エンドユーザーの API キー検証や RPM レートリミットは前段ゲートウェイ側で実施する。前段ゲートウェイが認証成功後に `X-Gateway-Secret` と `X-Tenant-ID` を注入して Kura へリバースプロキシする。
 
 ```bash
+# クライアントからゲートウェイへのリクエスト
 curl -X POST http://localhost:8000/llm/v1/chat/completions \
   -H "Authorization: Bearer tlge_live_9a8b7c6d..." \
   -H "Content-Type: application/json" \
@@ -461,6 +536,8 @@ curl -X POST http://localhost:8000/llm/v1/chat/completions \
     ]
   }'
 ```
+> [!NOTE]
+> ゲートウェイ製品側で Kura へのプロキシ転送時に固定ヘッダー（`X-Gateway-Secret`）を付与し、クライアントから持ち込まれた同名ヘッダーを除去・上書きする設定を行うこと（Tollgate 等の連携設定については後述の調査結果または各製品ドキュメントを参照）。
 
 ### 3. テナント別クォータ・課金プラン設定 (Admin API)
 
@@ -486,7 +563,7 @@ curl -X POST http://localhost:8080/v1/admin/limits \
 - **RPM（分間リクエスト制限）の非内包**: プロセス内メモリ依存を排除してマルチコンテナでの水平スケールを担保するため、RPM 制限は Kura から排除されている。レートリミットが必要な場合は前段の認証ゲートウェイ（Tollgate 等）で実施すること。
 - **Valkey / Redis 利用時のカウンタ消失リスク**: コスト管理ストアに Valkey / Redis を使用する場合、インスタンス障害等でメモリ上の累計値が消失するリスクがある。AOF 等の永続化設定を行うとともに、定期的な補正（Reconciliation）機能を併用すること。
 - **Amazon Bedrock の対応モデル**: Amazon Bedrock は `bedrock-mantle` の OpenAI 互換エンドポイントで中継される。Mantle で提供されていないモデル（Converse API / InvokeModel のみで提供されるモデル）は対象外となる。また Claude などのモデルも Mantle の Chat Completions 互換形式で呼び出す。
-- **一般 API の認証機構**: 一般 API では Bearer キーや JWT などの署名検証を行わず、HTTP ヘッダー（`X-Service-ID`, `X-Tenant-ID`）を信頼する。パブリック公開時は前段での認証・ヘッダー付与が必須となる。
+- **エンドユーザー認証の非内包**: Kura 自身はエンドユーザーの API キー認証を行わない。ゲートウェイ共有シークレット（`X-Gateway-Secret`）によるゲートウェイ・Kura 間の信頼確認を行い、ユーザー認証は前段ゲートウェイ（Tollgate 等）の責務となる。
 
 ---
 
@@ -494,6 +571,8 @@ curl -X POST http://localhost:8080/v1/admin/limits \
 
 以下の機能は現行バージョンでは未実装であり、将来的な拡張候補として検討されている。
 
+- **相互 TLS (mTLS) 認証**: ゲートウェイ・Kura 間の信頼確認を共有シークレットヘッダーだけでなく、クライアント証明書による mTLS で行う機能。
+- **クラウド・ワークロード ID 認証**: AWS IAM ロール / Azure マネージド ID / GCP サービスアカウント等のクラウドネイティブなサービス間トークン検証による認証。
 - **事前コスト予約 (Pre-allocation)**: リクエスト開始時に最大想定コストを事前予約し、完了時に確定差分を精算することで同時並行リクエストによる上限超過を抑制する機能。
 - **fail-closed モード**: リクエストごとに集計結果ストア（正のデータ）に対して残額の完全同期検証を行い、超過時の通過を完全に防ぐ高厳密性モード。
 - **Bedrock の Claude 系ネイティブ（Anthropic Messages API）対応**: Mantle の OpenAI 互換形式を介さず、Anthropic Messages API 形式への直接相互変換レイヤーの提供。

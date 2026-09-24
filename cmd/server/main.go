@@ -27,8 +27,12 @@ import (
 )
 
 func main() {
-	// 1. 設定のロード
+	// 1. 設定のロード & 検証
 	cfg := config.Load()
+	if err := cfg.ValidateGatewayAuth(); err != nil {
+		log.Fatalf("[FATAL] Gateway authentication configuration invalid: %v", err)
+	}
+
 	log.Printf("[INFO] Starting Kura on port %s (Region: %s, CostStore: %s, UsageStore: %s)",
 		cfg.Port, cfg.AWSRegion, cfg.CostStoreType, cfg.UsageStoreType)
 
@@ -110,7 +114,13 @@ func main() {
 	}
 
 	// 6. プレゼンテーション層（HTTP ハンドラ・ミドルウェア）の初期化
-	authMiddleware := delivery.NewAuthMiddleware(authUseCase)
+	gatewayAuthConfig := delivery.GatewayAuthConfig{
+		SharedSecret:         cfg.GatewaySharedSecret,
+		SharedSecretPrevious: cfg.GatewaySharedSecretPrevious,
+		HeaderName:           cfg.GatewaySecretHeader,
+		InsecureNoAuth:       cfg.InsecureNoGatewayAuth,
+	}
+	authMiddleware := delivery.NewAuthMiddleware(authUseCase, gatewayAuthConfig, promMetrics)
 	handler := delivery.NewHandler(chatUseCase, realtimeProxy, costStore, usageStore, authUseCase)
 	adminHandler := delivery.NewAdminHandler(adminUseCase, batchUseCase, cfg.AdminAPIKey)
 
