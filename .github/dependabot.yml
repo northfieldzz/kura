@@ -1,0 +1,43 @@
+version: 2
+updates:
+  # Go modules の依存関係更新
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      # マイナー・パッチバージョンを1つのPRにまとめる設定（運用負荷軽減）
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dependencies"
+      - "go"
+    open-pull-requests-limit: 10
+
+  # GitHub Actions ワークフローの依存関係更新
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 5
+
+  # Dockerfile のベースイメージ更新
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5
