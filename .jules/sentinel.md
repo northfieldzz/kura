@@ -6,3 +6,7 @@
 **Vulnerability:** String comparison (`==`) was being used for validating `adminAPIKey` and `internalSecret`, which can expose the application to timing attacks where an attacker can guess the secret character by character based on response times.
 **Learning:** In Go, string comparison terminates at the first mismatched character. This is a common pattern for standard strings but insecure for secrets.
 **Prevention:** Always use `crypto/subtle.ConstantTimeCompare` when comparing tokens, API keys, or any secret data. Convert strings to `[]byte` before comparison.
+## 2025-02-28 - [Fail Securely on Missing Authorization Component]
+**Vulnerability:** The `verifyAdmin` function in `internal/delivery/http/api.go` was returning `true` when the `adminHandler` was `nil`. This is an authorization bypass, meaning any endpoints guarded by this function would allow unauthenticated access if the handler failed to initialize or was not properly passed into the API setup.
+**Learning:** Returning `true` or bypassing checks when a component is missing violates the "fail securely" principle. If a security component (like an authorization handler) is missing, the application must default to denying access rather than allowing it.
+**Prevention:** Always default to `false` or return an error in authorization and authentication checks, especially when dependencies are missing.
