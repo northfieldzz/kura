@@ -19,3 +19,22 @@
 ## 2026-09-24 - Bypass net/http Header Canonicalization Overhead
 **Learning:** `net/http` pre-canonicalizes headers during parsing. Using `r.Header.Get("X-My-Header")` unconditionally runs `net/textproto.CanonicalMIMEHeaderKey`, which allocates memory and burns CPU on every call. In high-throughput paths (like request authentication where 10+ headers are extracted), this becomes a measurable bottleneck.
 **Action:** When extracting known, canonicalized headers on hot paths from a `net/http` request, directly access the map using `r.Header["X-My-Header"]` instead of `.Get()` to bypass unnecessary canonicalization logic.
+## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
+**Learning:** Similar to extracting fields from large JSON responses, unmarshaling SSE chunk JSON data fully into a complete struct (like ) just to extract the `usage` field performs unnecessary allocations and slows down processing in the hot streaming path.
+**Action:** Use a fast anonymous struct with only the `usage` field when extracting usage information from streaming chunks, matching the optimization applied to non-streaming responses.
+## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
+**Learning:** Similar to extracting fields from large JSON responses, unmarshaling SSE chunk JSON data fully into a complete struct (like entity.ChatCompletionChunk) just to extract the usage field performs unnecessary allocations and slows down processing in the hot streaming path.
+**Action:** Use a fast anonymous struct with only the usage field when extracting usage information from streaming chunks, matching the optimization applied to non-streaming responses.
+## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
+**Learning:** Similar to extracting fields from large JSON responses, unmarshaling SSE chunk JSON data fully into a complete struct (like entity.ChatCompletionChunk) just to extract the usage field performs unnecessary allocations and slows down processing in the hot streaming path.
+**Action:** Use a fast anonymous struct with only the usage field when extracting usage information from streaming chunks, matching the optimization applied to non-streaming responses.
+## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
+**Learning:** Similar to extracting fields from large JSON responses, unmarshaling SSE chunk JSON data fully into a complete struct (like entity.ChatCompletionChunk) just to extract the usage field performs unnecessary allocations and slows down processing in the hot streaming path.
+**Action:** Use a fast anonymous struct with only the usage field when extracting usage information from streaming chunks, matching the optimization applied to non-streaming responses.
+## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
+**Learning:** Similar to extracting fields from large JSON responses, unmarshaling SSE chunk JSON data fully into a complete struct (like entity.ChatCompletionChunk) just to extract the usage field performs unnecessary allocations and slows down processing in the hot streaming path.
+**Action:** Use a fast anonymous struct with only the usage field when extracting usage information from streaming chunks, matching the optimization applied to non-streaming responses.
+## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
+## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
+**Learning:** Similar to extracting fields from large JSON responses, unmarshaling SSE chunk JSON data fully into a complete struct (like entity.ChatCompletionChunk) just to extract the usage field performs unnecessary allocations and slows down processing in the hot streaming path.
+**Action:** Use a fast anonymous struct with only the usage field when extracting usage information from streaming chunks, matching the optimization applied to non-streaming responses.

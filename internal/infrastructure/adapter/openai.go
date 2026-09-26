@@ -150,11 +150,13 @@ func (a *openAIAdapter) ExtractUsageFromChunk(chunk []byte) (*entity.UsageInfo, 
 		return nil, nil
 	}
 
-	var streamChunk entity.ChatCompletionChunk
-	if err := json.Unmarshal(data, &streamChunk); err != nil {
+	var fastChunk struct {
+		Usage *entity.UsageInfo `json:"usage"`
+	}
+	if err := json.Unmarshal(data, &fastChunk); err != nil {
 		return nil, nil
 	}
-	return streamChunk.Usage, nil
+	return fastChunk.Usage, nil
 }
 
 func (a *openAIAdapter) NormalizeResponse(statusCode int, body []byte) ([]byte, error) {
