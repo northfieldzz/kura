@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -142,7 +141,8 @@ func (p *LLMProxy) handleStreaming(
 			log.Printf("[INFO] Client canceled streaming before response headers received. RequestID: %s", requestID)
 			return
 		}
-		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, fmt.Sprintf("Vendor connection error: %v", err), "")
+		log.Printf("[ERROR] Vendor connection error (RequestID: %s): %v", requestID, err)
+		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
 		return
 	}
 	defer resp.Body.Close()
@@ -295,7 +295,8 @@ func (p *LLMProxy) handleNonStreaming(
 			log.Printf("[INFO] Client canceled non-streaming request before response headers received. RequestID: %s", requestID)
 			return
 		}
-		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, fmt.Sprintf("Vendor connection error: %v", err), "")
+		log.Printf("[ERROR] Vendor connection error (RequestID: %s): %v", requestID, err)
+		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
 		return
 	}
 	defer resp.Body.Close()
