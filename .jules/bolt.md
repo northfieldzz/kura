@@ -38,6 +38,3 @@
 ## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
 **Learning:** Similar to extracting fields from large JSON responses, unmarshaling SSE chunk JSON data fully into a complete struct (like entity.ChatCompletionChunk) just to extract the usage field performs unnecessary allocations and slows down processing in the hot streaming path.
 **Action:** Use a fast anonymous struct with only the usage field when extracting usage information from streaming chunks, matching the optimization applied to non-streaming responses.
-## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
-**Learning:** Similar to extracting fields from large JSON responses, unmarshaling SSE chunk JSON data fully into a complete struct (like entity.ChatCompletionChunk) just to extract the usage field performs unnecessary allocations and slows down processing in the hot streaming path.
-**Action:** Use a fast anonymous struct with only the usage field when extracting usage information from streaming chunks, matching the optimization applied to non-streaming responses.
