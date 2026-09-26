@@ -10,3 +10,7 @@
 **Vulnerability:** The `verifyAdmin` function in `internal/delivery/http/api.go` was returning `true` when the `adminHandler` was `nil`. This is an authorization bypass, meaning any endpoints guarded by this function would allow unauthenticated access if the handler failed to initialize or was not properly passed into the API setup.
 **Learning:** Returning `true` or bypassing checks when a component is missing violates the "fail securely" principle. If a security component (like an authorization handler) is missing, the application must default to denying access rather than allowing it.
 **Prevention:** Always default to `false` or return an error in authorization and authentication checks, especially when dependencies are missing.
+## 2025-02-28 - [Prevent Information Leakage in Proxy Errors]
+**Vulnerability:** The reverse proxy was exposing detailed underlying network or vendor errors (such as TLS handshake failures, connection resets, or upstream timeouts) to the API client using `fmt.Sprintf` in the `sendError` function.
+**Learning:** Exposing raw backend errors to the client can leak sensitive internal network topology, configuration details, or upstream dependencies, violating the "fail securely" and "defense in depth" principles.
+**Prevention:** Always log detailed error information internally (including a `RequestID` for traceability) and return a safe, generic error message (e.g., "Vendor connection error") to the end user.
